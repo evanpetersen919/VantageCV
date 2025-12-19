@@ -57,6 +57,33 @@ UnrealEngine/Build/
 *.opensdf
 *.sdf
 
+# C++ Build Artifacts
+cpp/build/
+cpp/bin/
+cpp/lib/
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.exp
+*.pdb
+*.ilk
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# UE5 Plugin Build
+ue5_plugin/Binaries/
+ue5_plugin/Intermediate/
+ue5_plugin/Build/
+
 # IDE
 .vscode/
 .idea/
