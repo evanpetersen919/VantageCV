@@ -204,36 +204,29 @@ Build this project incrementally in **4 phases**:
 - [ ] Write technical blog post
 - [ ] Prepare GitHub repository for public release
 
-## Performance Benchmarks
+## Performance Targets
 
-### Synthetic Data Generation
-- **Rendering Speed**: ~3-5 seconds per image (UE5 @ 1920x1080)
-- **Annotation Generation**: ~0.1 seconds per image
-- **Total Pipeline**: ~1000 images/hour
+*Benchmarks will be updated as development progresses*
 
-### Model Training (RTX 4080)
-- **Multi-Task Model**: ResNet-50 backbone
-- **Training Time**: ~4 hours (100 epochs, 10K images)
-- **Batch Size**: 32
-- **Memory Usage**: ~12GB VRAM
+### Target Metrics (To Be Validated)
 
-### Inference Performance
-| Framework | FPS | Latency (ms) | Implementation |
-|-----------|-----|--------------|----------------|
-| PyTorch   | 45  | 22.2         | Python         |
-| ONNX Runtime | 89  | 11.2      | Python         |
-| TensorRT (Python) | 142 | 7.0   | Python         |
-| TensorRT (C++) | 187 | 5.3      | C++ (Custom)   |
+**Synthetic Data Generation:**
+- Rendering: 3-5 seconds/image (UE5 @ 1920x1080)
+- Target throughput: 1000 images/hour
 
-### Accuracy (Synthetic vs Real Data)
+**Model Training (RTX 4080):**
+- ResNet-50 backbone with multi-task heads
+- Expected training time: 3-5 hours (10K images)
 
-| Metric | Trained on Synthetic | Trained on Real (100 images) | Improvement |
-|--------|---------------------|------------------------------|-------------|
-| mAP@0.5 (Detection) | 0.82 | 0.65 | +26% |
-| mIoU (Segmentation) | 0.78 | 0.61 | +28% |
-| ADD-S (Pose) | 0.75 | 0.58 | +29% |
+**Inference Optimization Goals:**
+- Baseline PyTorch: ~40-50 FPS
+- ONNX Runtime: ~80-100 FPS (2x improvement)
+- TensorRT C++: ~180-200 FPS (4x improvement target)
 
-See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for detailed results.
+**Success Criteria:**
+- Demonstrate synthetic data reduces labeling requirements
+- Achieve real-time inference (>30 FPS) with TensorRT
+- Multi-task model performs competitively on all three tasks
 
 ## Key Implementation Details
 
@@ -292,12 +285,5 @@ Personal portfolio project demonstrating ML engineering and synthetic data gener
 - [ ] **Phase 7**: Web-based visualization dashboard
 - [ ] **Phase 8**: Distributed rendering support
 
-## Demo Video
-
-Watch the full demo showcasing domain switching, real-time generation, and model inference:
-
-[![VantageCV Demo](docs/assets/video_thumbnail.png)](https://youtu.be/your-demo-video)
-
----
 
 **Portfolio Project - 2025**
