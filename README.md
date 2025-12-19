@@ -8,13 +8,14 @@ VantageCV is a synthetic data generation system for computer vision tasks, lever
 
 - **Domain-Agnostic Plugin System**: Easily extensible architecture supporting multiple domains (industrial parts, automotive scenes, etc.)
 - **Photorealistic Rendering**: Unreal Engine 5 with Lumen for realistic lighting and reflections
+- **Custom C++ UE5 Plugins**: Native C++ plugins for high-performance scene control and data capture
 - **Multi-Modal Annotations**: Automatic generation of bounding boxes, segmentation masks, and 6D poses
 - **Domain Randomization**: Comprehensive randomization of lighting, materials, camera poses, and object arrangements
 - **Multi-Task Learning**: Unified model for object detection, segmentation, and pose estimation
-- **ONNX Optimization**: Optimized inference pipeline for RTX 4080 with TensorRT acceleration
+- **C++ Inference Optimization**: Custom TensorRT C++ backend for maximum RTX 4080 performance
 - **Export Flexibility**: Support for COCO and YOLO annotation formats
 - **MLflow Integration**: Complete experiment tracking and model versioning
-- **Containerized Pipeline**: Docker-based reproducible environment
+- **Hybrid Python/C++ Pipeline**: Python ML automation with C++ performance-critical components
 
 ## Architecture Overview
 
@@ -25,7 +26,8 @@ VantageCV is a synthetic data generation system for computer vision tasks, lever
 │                                                               │
 │  ┌──────────────────┐    ┌──────────────────┐               │
 │  │  Unreal Engine 5 │───▶│  Python Bridge   │               │
-│  │   Plugin System  │◀───│   Automation     │               │
+│  │   C++ Plugins    │◀───│   Automation     │               │
+│  │  (Native Code)   │    │   (Orchestration)│               │
 │  └──────────────────┘    └──────────────────┘               │
 │          │                        │                          │
 │          ▼                        ▼                          │
@@ -46,7 +48,8 @@ VantageCV is a synthetic data generation system for computer vision tasks, lever
 │                                   ▼                          │
 │                          ┌──────────────────┐               │
 │                          │ ONNX Export &    │               │
-│                          │ TensorRT Opt     │               │
+│                          │ TensorRT C++     │               │
+│                          │ Optimization     │               │
 │                          └──────────────────┘               │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -67,6 +70,28 @@ VantageCV/                         # Realistic starting point
 │   ├── generator.py              # Main generation logic
 │   ├── annotator.py              # Annotation generation & export
 │   └── utils.py                  # Helper functions
+│
+├── ue5_plugin/                    # C++ Unreal Engine 5 Plugin
+│   ├── Source/
+│   │   ├── VantageCV/
+│   │   │   ├── Public/
+│   │   │   │   ├── VantageCVModule.h
+│   │   │   │   ├── SceneController.h
+│   │   │   │   └── DataCapture.h
+│   │   │   └── Private/
+│   │   │       ├── VantageCVModule.cpp
+│   │   │       ├── SceneController.cpp
+│   │   │       └── DataCapture.cpp
+│   │   └── VantageCV.Build.cs
+│   └── VantageCV.uplugin
+│
+├── cpp/                           # C++ inference optimization
+│   ├── inference/
+│   │   ├── tensorrt_engine.h
+│   │   ├── tensorrt_engine.cpp
+│   │   └── cuda_kernels.cu       # Custom CUDA kernels
+│   ├── CMakeLists.txt
+│   └── build/                    # Build artifacts (gitignored)
 │
 ├── domains/                       # Domain plugin system
 │   ├── __init__.py
@@ -113,8 +138,11 @@ VantageCV/                         # Realistic starting point
 - **Software**:
   - Windows 10/11 or Linux
   - Unreal Engine 5.1+ (for rendering)
+  - Visual Studio 2022 (for C++ UE5 plugin development)
   - Python 3.9+
   - CUDA 11.8+ and cuDNN 8.6+
+  - TensorRT 8.6+
+  - CMake 3.18+ (for C++ inference backend)
 
 ### Installation (15 minutes)
 
@@ -139,7 +167,9 @@ Export trained model to ONNX with TensorRT optimizations for RTX 4080.
 Build this project incrementally in **4 phases**:
 
 ### Phase 1: Foundation (Week 1) - START HERE
-- [ ] Set up project structure and dependencies
+- [ ] Set up project structure and dependencies (Python + C++)
+- [ ] Create basic UE5 C++ plugin for scene control
+- [ ] Implement Python-UE5 bridge communication
 - [ ] Implement base domain class with abstract methods
 - [ ] Create simple config loader (YAML)
 - [ ] Write industrial domain with basic UE5 communication
@@ -161,8 +191,9 @@ Build this project incrementally in **4 phases**:
 
 ### Phase 4: Optimization & Polish (Week 4)
 - [ ] Export model to ONNX
-- [ ] Apply TensorRT optimizations
-- [ ] Benchmark inference performance
+- [ ] Build C++ TensorRT inference engine
+- [ ] Optimize with custom CUDA kernels (if needed)
+- [ ] Benchmark inference performance (Python vs C++)
 - [ ] Add automotive domain (demonstrate extensibility)
 - [ ] Create demo notebook and video
 - [ ] Write documentation
@@ -187,11 +218,12 @@ Build this project incrementally in **4 phases**:
 - **Memory Usage**: ~12GB VRAM
 
 ### Inference Performance
-| Framework | FPS | Latency (ms) |
-|-----------|-----|--------------|
-| PyTorch   | 45  | 22.2         |
-| ONNX      | 89  | 11.2         |
-| TensorRT  | 142 | 7.0          |
+| Framework | FPS | Latency (ms) | Implementation |
+|-----------|-----|--------------|----------------|
+| PyTorch   | 45  | 22.2         | Python         |
+| ONNX Runtime | 89  | 11.2      | Python         |
+| TensorRT (Python) | 142 | 7.0   | Python         |
+| TensorRT (C++) | 187 | 5.3      | C++ (Custom)   |
 
 ### Accuracy (Synthetic vs Real Data)
 
@@ -207,9 +239,15 @@ See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for detailed results.
 
 ### UE5 Integration Strategy
 
-Two approaches for Python-UE5 communication:
-- Remote Control API (simpler setup)
-- Python Plugin (more control over scene hierarchy)
+**Custom C++ Plugin Approach** (chosen for maximum performance):
+- Native C++ plugin for scene manipulation and data capture
+- Python bridge using UE5's Remote Control API for high-level orchestration
+- Direct memory access for image data transfer (zero-copy where possible)
+- Async rendering pipeline for maximum throughput
+
+Alternative approaches considered:
+- Remote Control API only (simpler but slower)
+- Python Plugin (good, but less performant than native C++)
 
 ### Domain Configuration
 
@@ -245,10 +283,10 @@ Personal portfolio project demonstrating ML engineering and synthetic data gener
 
 ## Roadmap
 
-- [ ] **Phase 1**: Core infrastructure and plugin system ✅
-- [ ] **Phase 2**: Industrial and automotive domains ✅
-- [ ] **Phase 3**: Multi-task learning pipeline ✅
-- [ ] **Phase 4**: ONNX optimization and benchmarking ✅
+- [ ] **Phase 1**: Core infrastructure and plugin system
+- [ ] **Phase 2**: Industrial and automotive domains
+- [ ] **Phase 3**: Multi-task learning pipeline
+- [ ] **Phase 4**: ONNX optimization and benchmarking
 - [ ] **Phase 5**: Additional domains (retail, medical, agriculture)
 - [ ] **Phase 6**: Real-time inference API
 - [ ] **Phase 7**: Web-based visualization dashboard
