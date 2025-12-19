@@ -1,3 +1,12 @@
+#==============================================================================
+# VantageCV - C++ TensorRT Inference Build Configuration
+#==============================================================================
+# File: CMakeLists.txt
+# Description: CMake build configuration for TensorRT inference engine
+# Author: Evan Petersen
+# Date: December 2025
+#==============================================================================
+
 cmake_minimum_required(VERSION 3.18)
 project(VantageCV_Inference LANGUAGES CXX CUDA)
 
