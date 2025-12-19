@@ -1,8 +1,8 @@
 # VantageCV: Synthetic Data Generation for Computer Vision
 
-**Portfolio Project - Demonstrating ML Engineering & Computer Vision Expertise**
+**Personal Portfolio Project | ML Engineering & Computer Vision**
 
-VantageCV is a synthetic data generation system for computer vision tasks, leveraging Unreal Engine 5's photorealistic rendering capabilities combined with a robust Python automation pipeline and optimized ML inference on RTX 4080 hardware.
+I'm building a synthetic data generation system for computer vision that leverages Unreal Engine 5's photorealistic rendering with a Python/C++ hybrid pipeline, optimized for RTX 4080 hardware. This project demonstrates my ability to integrate game engine technology, deep learning, and high-performance computing.
 
 ## Key Features
 
@@ -56,7 +56,7 @@ VantageCV is a synthetic data generation system for computer vision tasks, lever
 
 ## Project Structure
 
-This is a **pragmatic, buildable structure** that you can actually complete. Start simple, then expand.
+I'm using a **pragmatic, modular architecture** designed for iterative development and extensibility.
 
 ```
 VantageCV/                         # Realistic starting point
@@ -64,9 +64,9 @@ VantageCV/                         # Realistic starting point
 ├── requirements.txt               # Python dependencies
 ├── .gitignore                     # Git ignore rules
 │
-├── vantagecv/                     # Core Python package (start small)
+├── vantagecv/                     # Core Python package
 │   ├── __init__.py
-│   ├── config.py                 # Simple config loader (YAML)
+│   ├── config.py                 # Config loader (YAML)
 │   ├── generator.py              # Main generation logic
 │   ├── annotator.py              # Annotation generation & export
 │   └── utils.py                  # Helper functions
@@ -96,12 +96,12 @@ VantageCV/                         # Realistic starting point
 ├── domains/                       # Domain plugin system
 │   ├── __init__.py
 │   ├── base.py                   # Base domain class (abstract)
-│   ├── industrial.py             # Industrial parts domain (START HERE)
-│   └── automotive.py             # Automotive scenes (add later)
+│   ├── industrial.py             # Industrial parts domain
+│   └── automotive.py             # Automotive scenes
 │
-├── configs/                       # Simple YAML configurations
+├── configs/                       # YAML configurations
 │   ├── industrial.yaml           # Industrial domain config
-│   └── automotive.yaml           # Automotive domain config (optional)
+│   └── automotive.yaml           # Automotive domain config
 │
 ├── scripts/                       # Three essential scripts
 │   ├── generate.py               # Generate synthetic dataset
@@ -123,50 +123,48 @@ VantageCV/                         # Realistic starting point
     └── onnx/                     # Exported ONNX models
 ```
 
-### Why This Structure Works
+### Architecture Principles
 
-- **Minimal but Complete**: Everything needed for a working system, nothing more
-- **Easy to Extend**: Add new domains by implementing the base class
-- **Clear Separation**: Config, logic, domains, and scripts are isolated
-- **Portfolio-Ready**: Demonstrates clean architecture and best practices
+- **Modularity**: Clean separation between configuration, domain logic, and execution
+- **Extensibility**: New domains can be added by implementing the base class
+- **Separation of Concerns**: Python for ML orchestration, C++ for performance-critical paths
+- **Production-Ready Design**: Following software engineering best practices
 
-## Quick Start
+## Development Environment
 
-### Prerequisites
+### Hardware
 
-- **Hardware**: NVIDIA RTX 4080 (16GB VRAM recommended, RTX 3060+ minimum)
-- **Software**:
-  - Windows 10/11 or Linux
-  - Unreal Engine 5.1+ (for rendering)
-  - Visual Studio 2022 (for C++ UE5 plugin development)
-  - Python 3.9+
-  - CUDA 11.8+ and cuDNN 8.6+
-  - TensorRT 8.6+
-  - CMake 3.18+ (for C++ inference backend)
+- **GPU**: NVIDIA RTX 4080 (16GB VRAM)
+- **Development Machine**: Windows 11
 
-### Installation (15 minutes)
+### Software Stack
 
-Setup instructions will be provided during implementation.
+- **Rendering**: Unreal Engine 5.1+
+- **C++ Development**: Visual Studio 2026
+- **Python**: 3.9+
+- **CUDA**: 11.8+
+- **TensorRT**: 8.6+
+- **Build Tools**: CMake 3.18+
 
-### Three-Step Workflow
+### Pipeline Overview
 
-#### Step 1: Generate Synthetic Dataset (30-60 minutes for 1000 images)
+#### 1. Synthetic Data Generation
 
-Generate synthetic data using UE5 with domain randomization and automatic annotation.
+UE5 renders photorealistic scenes with domain randomization, automatically generating annotations for object detection, segmentation, and 6D pose estimation.
 
-#### Step 2: Train Multi-Task Model (3-4 hours on RTX 4080)
+#### 2. Multi-Task Model Training
 
-Train multi-task model for detection, segmentation, and pose estimation.
+PyTorch-based training pipeline with unified model architecture handling three CV tasks simultaneously.
 
-#### Step 3: Export to ONNX with TensorRT Optimization (5 minutes)
+#### 3. Inference Optimization
 
-Export trained model to ONNX with TensorRT optimizations for RTX 4080.
+Export to ONNX and optimize with custom TensorRT C++ backend for real-time performance on RTX 4080.
 
-## Implementation Roadmap
+## Development Roadmap
 
-Build this project incrementally in **4 phases**:
+I'm building this project in **4 phases**:
 
-### Phase 1: Foundation (Week 1) - START HERE
+### Phase 1: Foundation
 - [ ] Set up project structure and dependencies (Python + C++)
 - [ ] Create basic UE5 C++ plugin for scene control
 - [ ] Implement Python-UE5 bridge communication
@@ -198,11 +196,11 @@ Build this project incrementally in **4 phases**:
 - [ ] Create demo notebook and video
 - [ ] Write documentation
 
-### Phase 5: Portfolio Showcase (Optional)
-- [ ] Record domain-switching demo video
-- [ ] Create comparison charts (synthetic vs real data)
-- [ ] Write technical blog post
-- [ ] Prepare GitHub repository for public release
+### Phase 5: Documentation & Showcase
+- [ ] Record demo video showing domain switching and real-time inference
+- [ ] Create performance comparison charts
+- [ ] Write technical blog post on architecture decisions
+- [ ] Finalize documentation for portfolio presentation
 
 ## Performance Targets
 
@@ -262,9 +260,15 @@ Extensible architecture allows adding new domains by implementing the base domai
 
 This is a personal portfolio project. All rights reserved.
 
-## About
+## About This Project
 
-Personal portfolio project demonstrating ML engineering and synthetic data generation expertise.
+This portfolio project showcases my expertise in:
+- Computer vision and deep learning
+- High-performance C++ and GPU programming
+- Game engine integration for ML applications
+- End-to-end ML system design and optimization
+
+Built to demonstrate production-level engineering skills for ML/CV roles.
 
 ## Acknowledgments
 
@@ -286,4 +290,6 @@ Personal portfolio project demonstrating ML engineering and synthetic data gener
 - [ ] **Phase 8**: Distributed rendering support
 
 
-**Portfolio Project - 2025**
+---
+
+**Evan Petersen | Portfolio Project 2025**
