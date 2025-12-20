@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "VantageCV",
+	"Description": "Synthetic data generation plugin for computer vision tasks",
+	"Category": "Computer Vision",
+	"CreatedBy": "Evan Petersen",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "VantageCV",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
