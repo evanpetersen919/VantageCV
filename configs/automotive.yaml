@@ -1,1 +1,111 @@
+#==============================================================================
+# VantageCV - Automotive Domain Configuration
+#==============================================================================
+# File: automotive.yaml
+# Description: Configuration for autonomous vehicle perception
+# Author: Evan Petersen
+# Date: December 2025
+#==============================================================================
+
+domain:
+  name: "automotive"
+  type: "perception"
+  description: "Autonomous vehicle perception and road scene understanding"
+
+# Camera configuration
+camera:
+  resolution:
+    width: 1920
+    height: 1080
+  fov: 90  # Wide angle for driving
+  position:
+    height: 1.2  # meters (typical sensor height)
+    forward_offset: 2.0  # meters from vehicle center
+  fps: 30
+
+# Object classes for detection
+objects:
+  classes:
+    - "car"
+    - "truck"
+    - "bus"
+    - "motorcycle"
+    - "bicycle"
+    - "pedestrian"
+    - "traffic_light"
+    - "traffic_sign"
+    - "cone"
+    - "barrier"
+  
+  # 3D detection settings
+  include_3d_boxes: true
+  include_orientation: true
+
+# Automotive-specific settings
+automotive:
+  environments:
+    - "urban"
+    - "highway"
+    - "parking_lot"
+    - "residential"
+  
+  weather:
+    - "clear"
+    - "rain"
+    - "fog"
+    - "night"
+  
+  time_of_day:
+    - "dawn"
+    - "noon"
+    - "dusk"
+    - "night"
+  
+  traffic:
+    density: ["low", "medium", "high"]
+    max_vehicles: 50
+    max_pedestrians: 20
+  
+  randomization:
+    vehicle_colors: true
+    vehicle_types: true
+    weather_mixing: true
+    road_conditions: ["dry", "wet", "icy"]
+
+# Lane and road annotations
+road:
+  include_lanes: true
+  include_drivable_area: true
+  include_crosswalks: true
+  
+  lane_types:
+    - "solid_white"
+    - "dashed_white"
+    - "solid_yellow"
+    - "double_yellow"
+
+# Dataset generation
+dataset:
+  train_size: 10000
+  val_size: 2000
+  test_size: 1000
+  
+  scenario_distribution:
+    urban: 0.4
+    highway: 0.3
+    parking_lot: 0.2
+    residential: 0.1
+  
+  augmentation:
+    enabled: true
+    motion_blur: [0, 5]
+    lens_distortion: true
+    sun_glare: 0.1
+
+# Annotation format
+annotations:
+  format: "coco"  # or "yolo", "kitti"
+  include_depth: true
+  include_segmentation: true
+  min_object_size: 16  # pixels
 

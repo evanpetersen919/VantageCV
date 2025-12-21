@@ -1,1 +1,80 @@
+#==============================================================================
+# VantageCV - Industrial Domain Configuration
+#==============================================================================
+# File: industrial.yaml
+# Description: Configuration for industrial inspection scenarios
+# Author: Evan Petersen
+# Date: December 2025
+#==============================================================================
+
+domain:
+  name: "industrial"
+  type: "quality_control"
+  description: "Manufacturing quality control and defect detection"
+
+# Camera configuration
+camera:
+  resolution:
+    width: 1920
+    height: 1080
+  fov: 60  # Field of view in degrees
+  position:
+    height: 1.5  # meters above conveyor
+    angle: -30   # degrees from horizontal
+
+# Object classes for detection
+objects:
+  classes:
+    - "bolt"
+    - "nut"
+    - "washer"
+    - "gear"
+    - "bearing"
+    - "shaft"
+    - "housing"
+  
+  # Defect types
+  defects:
+    - "scratch"
+    - "dent"
+    - "crack"
+    - "discoloration"
+    - "missing_part"
+    - "deformation"
+
+# Industrial-specific settings
+industrial:
+  conveyor_speed: 1.0  # meters per second
+  capture_interval: 0.5  # seconds between captures
+  
+  lighting:
+    type: "fluorescent"
+    intensity_range: [0.7, 1.0]
+    color_temperature: 5000  # Kelvin
+  
+  randomization:
+    part_rotation: true
+    part_spacing: [0.1, 0.5]  # meters
+    surface_wear: true
+    dirt_probability: 0.3
+    defect_probability: 0.15
+
+# Dataset generation
+dataset:
+  train_size: 5000
+  val_size: 1000
+  test_size: 500
+  
+  augmentation:
+    enabled: true
+    blur: [0, 3]
+    noise: 0.02
+    brightness: [-0.2, 0.2]
+
+# Annotation format
+annotations:
+  format: "coco"  # or "yolo"
+  include_defects: true
+  include_orientation: true
+  min_object_size: 32  # pixels
 
