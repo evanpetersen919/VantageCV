@@ -87,6 +87,7 @@ ue5_plugin/Build/
 # IDE
 .vscode/
 .idea/
+.vs/
 *.swp
 *.swo
 *~
