@@ -2,79 +2,83 @@
 # VantageCV - Industrial Domain Configuration
 #==============================================================================
 # File: industrial.yaml
-# Description: Configuration for industrial inspection scenarios
+# Description: Configuration for PCB and electronics inspection
 # Author: Evan Petersen
 # Date: December 2025
 #==============================================================================
 
 domain:
   name: "industrial"
-  type: "quality_control"
-  description: "Manufacturing quality control and defect detection"
+  type: "pcb_inspection"
+  description: "Circuit board defect detection and electronics quality control"
 
 # Camera configuration
 camera:
-  resolution:
-    width: 1920
-    height: 1080
-  fov: 60  # Field of view in degrees
-  position:
-    height: 1.5  # meters above conveyor
-    angle: -30   # degrees from horizontal
+  resolution: [1920, 1080]
+  fov: 65  # Field of view in degrees
+  height_range: [30, 60]  # cm above inspection table
+  angle_range: [-10, 10]  # degrees from perpendicular
 
-# Object classes for detection
+# Object classes for detection (PCB components)
 objects:
   classes:
-    - "bolt"
-    - "nut"
-    - "washer"
-    - "gear"
-    - "bearing"
-    - "shaft"
-    - "housing"
+    - "resistor"
+    - "capacitor"
+    - "ic_chip"
+    - "transistor"
+    - "diode"
+    - "connector"
+    - "inductor"
+    - "led"
   
-  # Defect types
+  # Defect types specific to PCBs
   defects:
     - "scratch"
-    - "dent"
     - "crack"
     - "discoloration"
-    - "missing_part"
-    - "deformation"
+    - "missing_component"
+    - "solder_bridge"
+    - "lifted_pad"
+    - "cold_joint"
 
 # Industrial-specific settings
 industrial:
-  conveyor_speed: 1.0  # meters per second
-  capture_interval: 0.5  # seconds between captures
+  pcb_types:
+    - "single_layer"
+    - "double_layer"
+    - "multi_layer"
   
   lighting:
-    type: "fluorescent"
-    intensity_range: [0.7, 1.0]
-    color_temperature: 5000  # Kelvin
+    type: "led_industrial"
+    intensity_range: [0.6, 1.8]
+    color_temp_range: [4000, 6500]  # Kelvin (cool white LEDs)
+    num_sources_range: [2, 4]  # Multi-directional lighting
   
   randomization:
-    part_rotation: true
-    part_spacing: [0.1, 0.5]  # meters
-    surface_wear: true
-    dirt_probability: 0.3
-    defect_probability: 0.15
+    # Material randomization
+    pcb_finishes: ["matte_green", "glossy_green", "blue", "black"]
+    solder_metallic_range: [0.7, 0.95]
+    copper_oxidation_range: [0.0, 0.2]
+    
+    # Pose randomization
+    rotation_range: [0, 360]  # Full 360° rotation
+    tilt_range: [-5, 5]  # Manufacturing variation
+    position_offset: [-3, 3]  # mm
+    
+    # Defect injection
+    defect_probability: 0.30  # 30% of images have defects
+    defect_severity_range: [0.2, 1.0]
 
 # Dataset generation
 dataset:
-  train_size: 5000
-  val_size: 1000
-  test_size: 500
+  train_size: 7000
+  val_size: 2000
+  test_size: 1000
   
-  augmentation:
-    enabled: true
-    blur: [0, 3]
-    noise: 0.02
-    brightness: [-0.2, 0.2]
-
-# Annotation format
+# Annotation settings
 annotations:
-  format: "coco"  # or "yolo"
   include_defects: true
-  include_orientation: true
-  min_object_size: 32  # pixels
+  include_6d_pose: true
+  include_segmentation: true
+  min_component_size: 20  # pixels
 
