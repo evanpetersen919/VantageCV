@@ -10,21 +10,21 @@
 """
 VantageCV: Synthetic Data Generation for Computer Vision
 
-A hybrid synthetic data platform combining Unreal Engine 5's photorealistic
-rendering with optimized machine learning workflows.
+A hybrid Python/C++ platform combining Unreal Engine 5's photorealistic
+rendering with optimized ML workflows for synthetic training data generation.
 """
 
 __version__ = "0.1.0"
 __author__ = "Evan Petersen"
 
 # Import core modules for convenient access
-from .config import load_config
+from .config import Config
 from .generator import SyntheticDataGenerator
-from .annotator import AnnotationGenerator
+from .annotator import AnnotationExporter
 
 __all__ = [
-    "load_config",
+    "Config",
     "SyntheticDataGenerator",
-    "AnnotationGenerator",
+    "AnnotationExporter",
 ]
 
