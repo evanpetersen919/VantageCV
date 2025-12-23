@@ -2,112 +2,202 @@
 # VantageCV - Automotive Domain
 #==============================================================================
 # File: automotive.py
-# Description: Domain plugin for automotive scenarios
+# Description: Domain plugin for autonomous vehicle perception scenarios
 # Author: Evan Petersen
 # Date: December 2025
 #==============================================================================
 
-"""Automotive domain implementation for VantageCV."""
-
-from typing import Dict, Any
-import logging
+import random
+from typing import Dict, Any, List
 from .base import BaseDomain
-
-logger = logging.getLogger(__name__)
 
 
 class AutomotiveDomain(BaseDomain):
     """
-    Automotive domain.
+    Automotive domain for autonomous vehicle perception.
     
-    Focuses on:
-    - Autonomous vehicle perception
-    - Road scene understanding
-    - Traffic scenarios
-    - Parking lot environments
+    Focus areas:
+    - Vehicle detection and tracking
+    - Lane detection and road segmentation
+    - Pedestrian and cyclist detection
+    - Traffic light recognition
+    - 3D object detection with depth
     """
     
     def __init__(self, config: Dict[str, Any]):
-        """Initialize automotive domain."""
+        """Initialize automotive domain with vehicle-specific parameters."""
         super().__init__(config)
-        self.weather_conditions = config.get('automotive', {}).get('weather', ['clear'])
-        logger.info(f"Initialized AutomotiveDomain: {self.domain_name}")
-    
+        self.weather_types = ['clear', 'rain', 'fog', 'overcast', 'night']
+        self.times_of_day = ['dawn', 'morning', 'noon', 'afternoon', 'dusk', 'night']
+        self.object_types = self.get_object_list()
+        
     def setup_scene(self) -> bool:
         """
         Set up automotive environment in UE5.
         
-        TODO: Implement UE5 scene setup via Remote Control API
-        - Load road/parking lot environment
-        - Spawn vehicle actors
-        - Position pedestrians
-        - Configure weather system
-        - Set up camera on ego vehicle
-        """
-        logger.info("Setting up automotive scene...")
+        Scene setup:
+        - Load urban/highway environment
+        - Spawn ego vehicle with mounted camera
+        - Generate traffic (vehicles, pedestrians)
+        - Set up road network and lane markings
+        - Configure weather and lighting system
         
-        # Placeholder for UE5 scene setup
+        TODO: Replace with actual UE5 C++ plugin communication
+        """
+        print(f"[Automotive] Setting up driving scene")
+        
+        # TODO: UE5 plugin calls
+        # self.ue5_bridge.load_map("UrbanEnvironment")
+        # self.ue5_bridge.spawn_ego_vehicle("SedanCamera")
+        # self.ue5_bridge.setup_road_network()
+        
+        # Mock: Simulate loading scene
+        scene_types = ['urban_street', 'highway', 'parking_lot', 'residential']
+        current_scene = random.choice(scene_types)
+        print(f"[Automotive] Loaded {current_scene} with {len(self.object_types)} object types")
+        
         return True
     
     def randomize_scene(self) -> Dict[str, Any]:
         """
-        Apply automotive domain randomization.
+        Apply domain randomization for automotive scenarios.
         
-        TODO: Implement randomization
-        - Vary weather (sunny, rain, fog, night)
-        - Randomize traffic patterns
-        - Change time of day/lighting
-        - Vary vehicle types and colors
-        - Position pedestrians randomly
-        - Add road debris/obstacles
+        Randomization includes:
+        - Weather: clear, rain, fog, snow
+        - Time of day: dawn to night (affects lighting)
+        - Traffic: vehicle density, types, speeds
+        - Pedestrians: quantity, positions, actions
+        - Camera: ego vehicle position, speed
         """
-        logger.debug("Randomizing automotive scene...")
-        
-        metadata = {
-            'weather': 'clear',
-            'time_of_day': 'noon',
-            'traffic_density': 'medium',
-            'num_vehicles': 0,
-            'num_pedestrians': 0
+        randomization_params = {
+            'weather': {
+                'type': random.choice(self.weather_types),
+                'intensity': random.uniform(0.3, 1.0),
+                'fog_density': random.uniform(0.0, 0.5) if random.random() < 0.2 else 0.0,
+                'rain_intensity': random.uniform(0.0, 0.8) if random.random() < 0.3 else 0.0
+            },
+            'lighting': {
+                'time_of_day': random.choice(self.times_of_day),
+                'sun_angle': random.uniform(-15, 80),  # degrees above horizon
+                'ambient_intensity': random.uniform(0.4, 1.0),
+                'shadow_intensity': random.uniform(0.5, 0.9)
+            },
+            'traffic': {
+                'num_vehicles': random.randint(2, 15),
+                'vehicle_types': random.choices(['sedan', 'suv', 'truck', 'bus'], k=random.randint(2, 5)),
+                'traffic_density': random.choice(['light', 'medium', 'heavy']),
+                'speed_variation': random.uniform(0.7, 1.3)  # Multiplier
+            },
+            'pedestrians': {
+                'num_pedestrians': random.randint(0, 8),
+                'on_sidewalk': random.random() < 0.8,  # 80% on sidewalk
+                'crossing_street': random.random() < 0.2  # 20% crossing
+            },
+            'ego_vehicle': {
+                'speed_kmh': random.uniform(20, 80),
+                'lane_position': random.choice(['center', 'left', 'right']),
+                'following_distance': random.uniform(10, 40)  # meters
+            },
+            'camera': {
+                'fov': random.uniform(70, 90),  # Wide FOV for driving
+                'height_m': random.uniform(1.2, 1.8),  # Car camera height
+                'tilt_degrees': random.uniform(-5, 5)
+            }
         }
         
-        return metadata
+        # TODO: Apply to UE5 scene
+        # self.ue5_bridge.set_weather(randomization_params['weather'])
+        # self.ue5_bridge.set_time_of_day(randomization_params['lighting'])
+        # self.ue5_bridge.spawn_traffic(randomization_params['traffic'])
+        
+        print(f"[Automotive] Randomized - Weather: {randomization_params['weather']['type']}, "
+              f"Time: {randomization_params['lighting']['time_of_day']}")
+        
+        return randomization_params
     
     def get_annotations(self) -> Dict[str, Any]:
         """
-        Extract automotive annotations.
+        Extract ground truth annotations for autonomous driving.
         
-        TODO: Implement annotation extraction
-        - 2D bounding boxes (vehicles, pedestrians, cyclists)
-        - 3D bounding boxes with orientation
-        - Lane markings (polylines)
-        - Drivable area segmentation
-        - Traffic light states
-        - Depth maps
+        Annotations include:
+        - 2D bounding boxes: vehicles, pedestrians, cyclists, traffic signs
+        - 3D bounding boxes: with depth and orientation
+        - Lane markings: polylines for ego lane and adjacent lanes
+        - Semantic segmentation: road, sidewalk, vehicles, sky
+        - Traffic light states: red/yellow/green
         """
-        logger.debug("Extracting automotive annotations...")
+        # TODO: Extract from UE5 scene
+        # annotations = self.ue5_bridge.get_ground_truth()
         
+        # Mock annotations
         annotations = {
-            'vehicles': [],      # Vehicle detections
-            'pedestrians': [],   # Pedestrian detections
-            'lanes': [],         # Lane line polylines
-            'traffic_lights': [] # Traffic light states
+            'image_id': random.randint(10000, 99999),
+            'scene_type': 'urban_street',
+            'vehicles': [],
+            'pedestrians': [],
+            'lanes': [],
+            'traffic_lights': [],
+            'metadata': {}
+        }
+        
+        # Generate vehicle annotations
+        num_vehicles = random.randint(1, 10)
+        for i in range(num_vehicles):
+            vehicle = {
+                'class': random.choice(['car', 'truck', 'bus', 'motorcycle']),
+                'bbox_2d': [random.randint(100, 1700), random.randint(200, 900),
+                           random.randint(80, 300), random.randint(60, 200)],
+                'bbox_3d': {
+                    'center': [random.uniform(-20, 20), random.uniform(5, 50), random.uniform(-2, 2)],
+                    'dimensions': [random.uniform(1.5, 2.5), random.uniform(4, 6), random.uniform(1.4, 2.0)],
+                    'rotation_y': random.uniform(-180, 180)
+                },
+                'distance_m': random.uniform(5, 50),
+                'occluded': random.random() < 0.2
+            }
+            annotations['vehicles'].append(vehicle)
+        
+        # Generate pedestrian annotations
+        num_pedestrians = random.randint(0, 6)
+        for i in range(num_pedestrians):
+            pedestrian = {
+                'class': 'pedestrian',
+                'bbox_2d': [random.randint(200, 1600), random.randint(300, 800),
+                           random.randint(40, 120), random.randint(80, 250)],
+                'action': random.choice(['standing', 'walking', 'crossing']),
+                'distance_m': random.uniform(3, 30)
+            }
+            annotations['pedestrians'].append(pedestrian)
+        
+        # Generate lane markings (simplified)
+        annotations['lanes'] = {
+            'ego_lane': [[960, 1080], [960, 600]],  # Center line
+            'left_boundary': [[400, 1080], [500, 600]],
+            'right_boundary': [[1520, 1080], [1420, 600]]
         }
         
         return annotations
     
     def validate_scene(self) -> bool:
         """
-        Validate automotive scene.
+        Validate automotive scene quality.
         
-        Checks:
-        - Road/parking lot is visible
-        - At least some objects in frame
-        - Camera position is realistic
-        - No extreme weather obscuring view
+        Validation checks:
+        - Road is visible in frame
+        - Camera position is realistic (not underground/flying)
+        - At least one object present (vehicle or pedestrian)
+        - Weather not completely obscuring view
+        - No extreme lighting (completely dark)
         """
-        logger.debug("Validating automotive scene...")
+        # TODO: Implement actual validation via UE5
+        # road_visible = self.ue5_bridge.is_road_in_frame()
+        # object_count = len(self.ue5_bridge.get_visible_objects())
         
-        # TODO: Implement validation logic
-        return True
+        # Mock validation: randomly reject 10% of scenes
+        is_valid = random.random() > 0.10
+        
+        if not is_valid:
+            print("[Automotive] Scene validation failed - regenerating")
+        
+        return is_valid
 
