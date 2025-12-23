@@ -2,91 +2,207 @@
 # VantageCV - Synthetic Data Generator
 #==============================================================================
 # File: generator.py
-# Description: Main synthetic data generation logic connecting to UE5 and
-#              orchestrating scene randomization and image capture
+# Description: Main orchestrator for synthetic data generation pipeline
 # Author: Evan Petersen
 # Date: December 2025
 #==============================================================================
 
-"""Synthetic data generation engine for VantageCV."""
-
+import time
+import json
 from pathlib import Path
-from typing import Optional, Dict, Any
-import logging
-
-logger = logging.getLogger(__name__)
+from typing import Dict, Any, Optional
+from datetime import datetime
+import numpy as np
+from PIL import Image
 
 
 class SyntheticDataGenerator:
     """
-    Orchestrates synthetic data generation using Unreal Engine 5.
+    Main orchestrator for synthetic data generation.
     
-    Handles connection to UE5, scene randomization, and data capture.
+    Coordinates the entire pipeline:
+    1. Load domain-specific configuration
+    2. Initialize domain plugin (industrial, automotive, etc.)
+    3. Setup UE5 scene
+    4. Generate loop: randomize → validate → capture → annotate
+    5. Export annotations in multiple formats
     """
     
-    def __init__(self, config: Dict[str, Any], domain: str):
+    def __init__(self, domain, config, annotator):
         """
-        Initialize the synthetic data generator.
+        Initialize generator with domain and config.
         
         Args:
-            config: Configuration dictionary from YAML
-            domain: Domain name (e.g., 'industrial', 'automotive')
+            domain: Domain instance (IndustrialDomain, AutomotiveDomain, etc.)
+            config: Config object with settings
+            annotator: Annotator instance for export
         """
-        self.config = config
         self.domain = domain
-        self.ue5_connection = None
+        self.config = config
+        self.annotator = annotator
+        self.stats = {
+            'generated': 0,
+            'rejected': 0,
+            'start_time': None,
+            'end_time': None
+        }
         
-        logger.info(f"Initializing generator for domain: {domain}")
-    
-    def connect_to_ue5(self, host: str = "localhost", port: int = 9998) -> bool:
+    def generate_dataset(self, num_images: int, output_dir: str) -> Dict[str, Any]:
         """
-        Connect to Unreal Engine 5 via Remote Control API.
+        Generate synthetic dataset with N images.
         
-        Args:
-            host: UE5 host address
-            port: UE5 Remote Control API port
-            
-        Returns:
-            True if connection successful
-        """
-        # TODO: Implement UE5 Remote Control API connection
-        logger.info(f"Connecting to UE5 at {host}:{port}")
-        return False
-    
-    def generate_dataset(self, num_images: int, output_dir: Path) -> None:
-        """
-        Generate synthetic dataset with specified number of images.
+        Pipeline for each image:
+        1. Randomize scene parameters
+        2. Validate scene quality
+        3. Capture image (from UE5)
+        4. Extract annotations
+        5. Save image and metadata
         
         Args:
             num_images: Number of images to generate
-            output_dir: Output directory for images and annotations
+            output_dir: Directory to save images and annotations
+            
+        Returns:
+            Generation statistics and metadata
         """
-        # TODO: Implement dataset generation loop
-        # 1. For each image:
-        #    - Randomize scene
-        #    - Capture image
-        #    - Generate annotations
-        #    - Save to disk
+        output_path = Path(output_dir)
+        images_dir = output_path / 'images'
+        annotations_dir = output_path / 'annotations'
         
-        logger.info(f"Generating {num_images} images to {output_dir}")
+        # Create output directories
+        images_dir.mkdir(parents=True, exist_ok=True)
+        annotations_dir.mkdir(parents=True, exist_ok=True)
         
-        for i in range(num_images):
-            logger.info(f"Generating image {i+1}/{num_images}")
-            # self._randomize_scene()
-            # self._capture_frame(output_dir, i)
+        print(f"\n{'='*60}")
+        print(f"VantageCV Synthetic Data Generation")
+        print(f"{'='*60}")
+        print(f"Domain: {self.domain.domain_name}")
+        print(f"Target images: {num_images}")
+        print(f"Output: {output_path}")
+        print(f"{'='*60}\n")
+        
+        # Setup scene once
+        print("[1/4] Setting up scene...")
+        if not self.domain.setup_scene():
+            raise RuntimeError("Failed to setup scene")
+        print("✓ Scene setup complete\n")
+        
+        self.stats['start_time'] = datetime.now()
+        generated_count = 0
+        attempts = 0
+        max_attempts = num_images * 3  # Allow up to 3x attempts for rejections
+        
+        print("[2/4] Generating images...")
+        while generated_count < num_images and attempts < max_attempts:
+            attempts += 1
+            
+            # Randomize scene
+            randomization_metadata = self.domain.randomize_scene()
+            
+            # Validate scene quality
+            if not self.domain.validate_scene():
+                self.stats['rejected'] += 1
+                continue
+            
+            # Capture image (TODO: Replace with actual UE5 capture)
+            image_filename = f"image_{generated_count:06d}.png"
+            image_path = images_dir / image_filename
+            self._capture_image(image_path)
+            
+            # Extract ground truth annotations
+            annotations = self.domain.get_annotations()
+            annotations['image_filename'] = image_filename
+            annotations['randomization'] = randomization_metadata
+            annotations['timestamp'] = datetime.now().isoformat()
+            
+            # Save annotation metadata
+            annotation_file = annotations_dir / f"image_{generated_count:06d}.json"
+            with open(annotation_file, 'w') as f:
+                json.dump(annotations, f, indent=2)
+            
+            generated_count += 1
+            self.stats['generated'] = generated_count
+            
+            # Progress update
+            if generated_count % 10 == 0 or generated_count == num_images:
+                elapsed = (datetime.now() - self.stats['start_time']).total_seconds()
+                rate = generated_count / elapsed if elapsed > 0 else 0
+                eta = (num_images - generated_count) / rate if rate > 0 else 0
+                print(f"  Progress: {generated_count}/{num_images} | "
+                      f"Rate: {rate:.1f} img/s | "
+                      f"Rejected: {self.stats['rejected']} | "
+                      f"ETA: {eta:.0f}s")
+        
+        self.stats['end_time'] = datetime.now()
+        
+        print(f"\n✓ Image generation complete\n")
+        
+        # Export annotations to standard formats
+        print("[3/4] Exporting annotations...")
+        self._export_annotations(output_path, annotations_dir)
+        print("✓ Annotations exported\n")
+        
+        # Save generation metadata
+        print("[4/4] Saving metadata...")
+        self._save_metadata(output_path)
+        print("✓ Metadata saved\n")
+        
+        # Print summary
+        duration = (self.stats['end_time'] - self.stats['start_time']).total_seconds()
+        print(f"{'='*60}")
+        print(f"Generation Complete!")
+        print(f"{'='*60}")
+        print(f"Images generated: {self.stats['generated']}")
+        print(f"Scenes rejected: {self.stats['rejected']}")
+        print(f"Total duration: {duration:.1f}s")
+        print(f"Average rate: {self.stats['generated']/duration:.2f} img/s")
+        print(f"{'='*60}\n")
+        
+        return self.stats
     
-    def _randomize_scene(self) -> None:
-        """Randomize scene parameters via UE5 plugin."""
-        # TODO: Call UE5 SceneController randomization functions
-        pass
+    def _capture_image(self, output_path: Path) -> None:
+        """
+        Capture image from UE5.
+        
+        TODO: Replace with actual UE5 C++ plugin communication
+        For now, generates a placeholder image
+        """
+        # TODO: self.ue5_bridge.capture_frame(str(output_path))
+        
+        # Placeholder: Create dummy image
+        resolution = self.config.get('camera.resolution', [1920, 1080])
+        dummy_image = np.random.randint(0, 255, (*resolution[::-1], 3), dtype=np.uint8)
+        Image.fromarray(dummy_image).save(output_path)
     
-    def _capture_frame(self, output_dir: Path, index: int) -> None:
-        """Capture current frame and generate annotations."""
-        # TODO: Call UE5 DataCapture to save image and labels
-        pass
-    
-    def disconnect(self) -> None:
-        """Disconnect from UE5."""
-        # TODO: Clean up UE5 connection
-        logger.info("Disconnecting from UE5")
+    def _export_annotations(self, output_path: Path, annotations_dir: Path) -> None:
+        """Export annotations to COCO and YOLO formats."""
+        # Load all annotation JSONs
+        annotation_files = sorted(annotations_dir.glob("*.json"))
+        annotations_list = []
+        
+        for ann_file in annotation_files:
+            with open(ann_file, 'r') as f:
+                annotations_list.append(json.load(f))
+        
+        # Export to different formats
+        self.annotator.export_coco(annotations_list, output_path / 'annotations_coco.json')
+        self.annotator.export_yolo(annotations_list, output_path / 'annotations_yolo')
+        
+    def _save_metadata(self, output_path: Path) -> None:
+        """Save generation metadata and configuration."""
+        metadata = {
+            'domain': self.domain.domain_name,
+            'config': self.config.data,
+            'stats': {
+                'generated': self.stats['generated'],
+                'rejected': self.stats['rejected'],
+                'start_time': self.stats['start_time'].isoformat(),
+                'end_time': self.stats['end_time'].isoformat(),
+                'duration_seconds': (self.stats['end_time'] - self.stats['start_time']).total_seconds()
+            },
+            'version': 'VantageCV v0.1.0'
+        }
+        
+        with open(output_path / 'metadata.json', 'w') as f:
+            json.dump(metadata, f, indent=2)
 
