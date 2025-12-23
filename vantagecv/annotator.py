@@ -1,106 +1,205 @@
 #==============================================================================
-# VantageCV - Annotation Generator
+# VantageCV - Annotation Exporter
 #==============================================================================
 # File: annotator.py
-# Description: Generates annotations in COCO/YOLO format from UE5 scene data
+# Description: Exports annotations to COCO and YOLO formats
 # Author: Evan Petersen
 # Date: December 2025
 #==============================================================================
 
-"""Annotation generation and export for computer vision datasets."""
-
 import json
 from pathlib import Path
 from typing import List, Dict, Any
-import logging
-
-logger = logging.getLogger(__name__)
+from datetime import datetime
 
 
-class AnnotationGenerator:
+class AnnotationExporter:
     """
-    Generates and exports annotations in various formats.
+    Exports annotations to standard computer vision formats.
     
-    Supports COCO JSON and YOLO TXT formats.
+    Supports:
+    - COCO JSON (for object detection, instance segmentation)
+    - YOLO TXT (for object detection)
     """
     
-    def __init__(self, output_format: str = "coco"):
+    def __init__(self, class_names: List[str]):
         """
-        Initialize annotation generator.
+        Initialize annotation exporter.
         
         Args:
-            output_format: Annotation format ('coco' or 'yolo')
+            class_names: List of object class names (e.g., ['resistor', 'ic', 'capacitor'])
         """
-        self.output_format = output_format
-        logger.info(f"Initialized AnnotationGenerator with format: {output_format}")
+        self.class_names = class_names
+        self.class_to_id = {name: idx for idx, name in enumerate(class_names)}
     
-    def generate_coco_annotation(self, image_data: Dict[str, Any], 
-                                 objects: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def export_coco(self, annotations_list: List[Dict[str, Any]], output_path: Path) -> None:
         """
-        Generate COCO format annotation for a single image.
+        Export annotations to COCO JSON format.
+        
+        COCO format structure:
+        {
+            "images": [...],
+            "annotations": [...],
+            "categories": [...]
+        }
         
         Args:
-            image_data: Dictionary with image metadata (width, height, filename)
-            objects: List of object dictionaries with bbox and class info
-            
-        Returns:
-            COCO format annotation dictionary
+            annotations_list: List of annotation dicts from generator
+            output_path: Path to save COCO JSON file
         """
-        # TODO: Implement COCO annotation generation
-        # Format: {
-        #   "image_id": int,
-        #   "bbox": [x, y, width, height],
-        #   "category_id": int,
-        #   "area": float,
-        #   "iscrowd": 0
-        # }
-        
-        annotations = []
-        logger.debug(f"Generating COCO annotations for {len(objects)} objects")
-        
-        return {
-            "images": [image_data],
-            "annotations": annotations,
+        coco_data = {
+            "info": {
+                "description": "VantageCV Synthetic Dataset",
+                "version": "1.0",
+                "year": datetime.now().year,
+                "date_created": datetime.now().isoformat()
+            },
+            "images": [],
+            "annotations": [],
             "categories": []
         }
-    
-    def generate_yolo_annotation(self, image_width: int, image_height: int,
-                                 objects: List[Dict[str, Any]]) -> List[str]:
-        """
-        Generate YOLO format annotation for a single image.
         
-        Args:
-            image_width: Image width in pixels
-            image_height: Image height in pixels
-            objects: List of object dictionaries
+        # Create categories
+        for idx, class_name in enumerate(self.class_names):
+            coco_data["categories"].append({
+                "id": idx,
+                "name": class_name,
+                "supercategory": "object"
+            })
+        
+        annotation_id = 0
+        
+        # Process each image
+        for image_id, ann_data in enumerate(annotations_list):
+            # Add image metadata
+            image_info = {
+                "id": image_id,
+                "file_name": ann_data['image_filename'],
+                "width": 1920,  # TODO: Get from config
+                "height": 1080,
+                "date_captured": ann_data.get('timestamp', '')
+            }
+            coco_data["images"].append(image_info)
             
-        Returns:
-            List of YOLO format strings (one per object)
-        """
-        # TODO: Implement YOLO annotation generation
-        # Format: class_id center_x center_y width height (normalized 0-1)
+            # Add object annotations (components)
+            components = ann_data.get('components', [])
+            for component in components:
+                bbox = component['bbox']  # [x, y, width, height]
+                class_name = component['class']
+                
+                if class_name not in self.class_to_id:
+                    continue
+                
+                annotation = {
+                    "id": annotation_id,
+                    "image_id": image_id,
+                    "category_id": self.class_to_id[class_name],
+                    "bbox": bbox,
+                    "area": bbox[2] * bbox[3],
+                    "iscrowd": 0
+                }
+                
+                # Add segmentation if available
+                if component.get('segmentation'):
+                    annotation["segmentation"] = component['segmentation']
+                
+                coco_data["annotations"].append(annotation)
+                annotation_id += 1
+            
+            # Add defect annotations
+            defects = ann_data.get('defects', [])
+            for defect in defects:
+                bbox = defect['bbox']
+                
+                annotation = {
+                    "id": annotation_id,
+                    "image_id": image_id,
+                    "category_id": len(self.class_names),  # Defect class
+                    "bbox": bbox,
+                    "area": bbox[2] * bbox[3],
+                    "iscrowd": 0,
+                    "defect_type": defect['type'],
+                    "severity": defect.get('severity', 0.5)
+                }
+                
+                coco_data["annotations"].append(annotation)
+                annotation_id += 1
         
-        yolo_lines = []
-        logger.debug(f"Generating YOLO annotations for {len(objects)} objects")
+        # Save COCO JSON
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w') as f:
+            json.dump(coco_data, f, indent=2)
         
-        return yolo_lines
+        print(f"✓ Exported COCO annotations: {len(coco_data['annotations'])} objects in {len(coco_data['images'])} images")
     
-    def save_annotations(self, annotations: Any, output_path: Path) -> None:
+    def export_yolo(self, annotations_list: List[Dict[str, Any]], output_dir: Path) -> None:
         """
-        Save annotations to file.
+        Export annotations to YOLO format.
+        
+        YOLO format: One .txt file per image
+        Each line: class_id center_x center_y width height (normalized 0-1)
         
         Args:
-            annotations: Annotation data (dict for COCO, list for YOLO)
-            output_path: Output file path
+            annotations_list: List of annotation dicts from generator
+            output_dir: Directory to save YOLO txt files
         """
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
         
-        if self.output_format == "coco":
-            with open(output_path, 'w') as f:
-                json.dump(annotations, f, indent=2)
-        elif self.output_format == "yolo":
-            with open(output_path, 'w') as f:
-                f.write('\n'.join(annotations))
+        image_width = 1920  # TODO: Get from config
+        image_height = 1080
         
-        logger.info(f"Saved annotations to {output_path}")
+        total_objects = 0
+        
+        for ann_data in annotations_list:
+            image_filename = ann_data['image_filename']
+            txt_filename = Path(image_filename).stem + '.txt'
+            txt_path = output_dir / txt_filename
+            
+            yolo_lines = []
+            
+            # Convert components to YOLO format
+            components = ann_data.get('components', [])
+            for component in components:
+                bbox = component['bbox']  # [x, y, width, height]
+                class_name = component['class']
+                
+                if class_name not in self.class_to_id:
+                    continue
+                
+                # Convert to YOLO format (normalized center x, y, width, height)
+                center_x = (bbox[0] + bbox[2] / 2) / image_width
+                center_y = (bbox[1] + bbox[3] / 2) / image_height
+                norm_width = bbox[2] / image_width
+                norm_height = bbox[3] / image_height
+                
+                class_id = self.class_to_id[class_name]
+                yolo_line = f"{class_id} {center_x:.6f} {center_y:.6f} {norm_width:.6f} {norm_height:.6f}"
+                yolo_lines.append(yolo_line)
+                total_objects += 1
+            
+            # Convert defects to YOLO format
+            defects = ann_data.get('defects', [])
+            for defect in defects:
+                bbox = defect['bbox']
+                
+                center_x = (bbox[0] + bbox[2] / 2) / image_width
+                center_y = (bbox[1] + bbox[3] / 2) / image_height
+                norm_width = bbox[2] / image_width
+                norm_height = bbox[3] / image_height
+                
+                defect_class_id = len(self.class_names)  # Defect is last class
+                yolo_line = f"{defect_class_id} {center_x:.6f} {center_y:.6f} {norm_width:.6f} {norm_height:.6f}"
+                yolo_lines.append(yolo_line)
+                total_objects += 1
+            
+            # Write YOLO txt file
+            with open(txt_path, 'w') as f:
+                f.write('\n'.join(yolo_lines))
+        
+        # Save class names file
+        classes_path = output_dir / 'classes.txt'
+        with open(classes_path, 'w') as f:
+            f.write('\n'.join(self.class_names + ['defect']))
+        
+        print(f"✓ Exported YOLO annotations: {total_objects} objects in {len(annotations_list)} images")
 
