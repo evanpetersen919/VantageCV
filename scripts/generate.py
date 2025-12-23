@@ -2,36 +2,45 @@
 # VantageCV - Data Generation Script
 #==============================================================================
 # File: generate.py
-# Description: Generate synthetic datasets using UE5
+# Description: Command-line script to generate synthetic datasets
 # Author: Evan Petersen
 # Date: December 2025
 #==============================================================================
 
-"""Generate synthetic training data using VantageCV."""
-
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
-# Add parent directory to path
+# Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from vantagecv import load_config, SyntheticDataGenerator
-from vantagecv.utils import setup_logging
-import logging
+from vantagecv.config import Config
+from vantagecv.generator import SyntheticDataGenerator
+from vantagecv.annotator import AnnotationExporter
+from domains.industrial import IndustrialDomain
+from domains.automotive import AutomotiveDomain
 
 
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description='Generate synthetic training data with VantageCV'
+        description='VantageCV: Generate synthetic computer vision datasets',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Generate 1000 industrial PCB images
+  python scripts/generate.py --config configs/industrial.yaml --num-images 1000
+  
+  # Generate automotive dataset with YOLO format
+  python scripts/generate.py --config configs/automotive.yaml --format yolo --num-images 5000
+        """
     )
     
     parser.add_argument(
         '--config',
         type=str,
         required=True,
-        help='Path to domain configuration YAML file'
+        help='Path to domain configuration YAML file (e.g., configs/industrial.yaml)'
     )
     
     parser.add_argument(
@@ -44,84 +53,91 @@ def parse_args():
     parser.add_argument(
         '--output-dir',
         type=str,
-        default='data/synthetic',
-        help='Output directory for generated data'
-    )
-    
-    parser.add_argument(
-        '--ue5-host',
-        type=str,
-        default='localhost',
-        help='UE5 Remote Control API host'
-    )
-    
-    parser.add_argument(
-        '--ue5-port',
-        type=int,
-        default=30010,
-        help='UE5 Remote Control API port'
+        default=None,
+        help='Output directory (default: data/synthetic/<domain_name>)'
     )
     
     parser.add_argument(
         '--format',
         type=str,
-        choices=['coco', 'yolo'],
-        default='coco',
-        help='Annotation format'
-    )
-    
-    parser.add_argument(
-        '--log-level',
-        type=str,
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level'
+        choices=['coco', 'yolo', 'both'],
+        default='both',
+        help='Annotation export format (default: both)'
     )
     
     return parser.parse_args()
 
 
 def main():
-    """Main data generation function."""
+    """Main data generation pipeline."""
     args = parse_args()
-    setup_logging(args.log_level)
-    logger = logging.getLogger(__name__)
     
-    logger.info("=" * 60)
-    logger.info("VantageCV Data Generation")
-    logger.info("=" * 60)
+    print("\n" + "="*60)
+    print("VantageCV Synthetic Data Generation")
+    print("="*60 + "\n")
     
     # Load configuration
-    logger.info(f"Loading config from {args.config}")
-    config = load_config(args.config)
+    print(f"Loading configuration: {args.config}")
+    config = Config(args.config)
+    domain_name = config.get('domain.name', 'unknown')
+    print(f"Domain: {domain_name}\n")
     
-    # Create generator
-    generator = SyntheticDataGenerator(
-        config=config,
-        output_dir=Path(args.output_dir)
-    )
+    # Determine output directory
+    if args.output_dir:
+        output_dir = args.output_dir
+    else:
+        output_dir = f"data/synthetic/{domain_name}"
     
-    # Connect to UE5
-    logger.info(f"Connecting to UE5 at {args.ue5_host}:{args.ue5_port}")
-    if not generator.connect_to_ue5(args.ue5_host, args.ue5_port):
-        logger.error("Failed to connect to UE5")
+    # Initialize domain
+    print(f"Initializing {domain_name} domain...")
+    if domain_name == 'industrial':
+        domain = IndustrialDomain(config.data)
+    elif domain_name == 'automotive':
+        domain = AutomotiveDomain(config.data)
+    else:
+        print(f"Error: Unknown domain '{domain_name}'")
+        print("Supported domains: industrial, automotive")
         return 1
     
+    # Initialize annotation exporter
+    class_names = domain.get_object_list()
+    annotator = AnnotationExporter(class_names)
+    
+    # Initialize generator
+    generator = SyntheticDataGenerator(
+        domain=domain,
+        config=config,
+        annotator=annotator
+    )
+    
     # Generate dataset
-    logger.info(f"Generating {args.num_images} images...")
     try:
-        generator.generate_dataset(
+        stats = generator.generate_dataset(
             num_images=args.num_images,
-            annotation_format=args.format
+            output_dir=output_dir
         )
-        logger.info("\n" + "=" * 60)
-        logger.info("Generation complete!")
-        logger.info(f"Output saved to: {args.output_dir}")
-        logger.info("=" * 60)
+        
+        print(f"\n{'='*60}")
+        print("Dataset generation successful!")
+        print(f"{'='*60}")
+        print(f"Location: {output_dir}/")
+        print(f"  - images/           : {stats['generated']} images")
+        print(f"  - annotations/      : JSON metadata files")
+        print(f"  - annotations_coco.json")
+        print(f"  - annotations_yolo/ : YOLO format labels")
+        print(f"  - metadata.json     : Generation statistics")
+        print(f"{'='*60}\n")
+        
         return 0
         
+    except KeyboardInterrupt:
+        print("\n\nGeneration interrupted by user.")
+        return 1
+        
     except Exception as e:
-        logger.error(f"Generation failed: {e}", exc_info=True)
+        print(f"\n\nError during generation: {e}")
+        import traceback
+        traceback.print_exc()
         return 1
 
 
