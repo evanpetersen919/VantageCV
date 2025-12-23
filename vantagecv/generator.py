@@ -184,9 +184,13 @@ class SyntheticDataGenerator:
             with open(ann_file, 'r') as f:
                 annotations_list.append(json.load(f))
         
+        # Get image size from config
+        resolution = self.config.get('camera.resolution', [1920, 1080])
+        image_size = tuple(resolution) if isinstance(resolution, list) else (1920, 1080)
+        
         # Export to different formats
-        self.annotator.export_coco(annotations_list, output_path / 'annotations_coco.json')
-        self.annotator.export_yolo(annotations_list, output_path / 'annotations_yolo')
+        self.annotator.export_coco(annotations_list, output_path / 'annotations_coco.json', image_size)
+        self.annotator.export_yolo(annotations_list, output_path / 'annotations_yolo', image_size)
         
     def _save_metadata(self, output_path: Path) -> None:
         """Save generation metadata and configuration."""

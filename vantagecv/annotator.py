@@ -32,7 +32,8 @@ class AnnotationExporter:
         self.class_names = class_names
         self.class_to_id = {name: idx for idx, name in enumerate(class_names)}
     
-    def export_coco(self, annotations_list: List[Dict[str, Any]], output_path: Path) -> None:
+    def export_coco(self, annotations_list: List[Dict[str, Any]], output_path: Path, 
+                    image_size: tuple = (1920, 1080)) -> None:
         """
         Export annotations to COCO JSON format.
         
@@ -46,6 +47,7 @@ class AnnotationExporter:
         Args:
             annotations_list: List of annotation dicts from generator
             output_path: Path to save COCO JSON file
+            image_size: Tuple of (width, height) in pixels
         """
         coco_data = {
             "info": {
@@ -75,8 +77,8 @@ class AnnotationExporter:
             image_info = {
                 "id": image_id,
                 "file_name": ann_data['image_filename'],
-                "width": 1920,  # TODO: Get from config
-                "height": 1080,
+                "width": image_size[0],
+                "height": image_size[1],
                 "date_captured": ann_data.get('timestamp', '')
             }
             coco_data["images"].append(image_info)
@@ -132,7 +134,8 @@ class AnnotationExporter:
         
         print(f"✓ Exported COCO annotations: {len(coco_data['annotations'])} objects in {len(coco_data['images'])} images")
     
-    def export_yolo(self, annotations_list: List[Dict[str, Any]], output_dir: Path) -> None:
+    def export_yolo(self, annotations_list: List[Dict[str, Any]], output_dir: Path,
+                    image_size: tuple = (1920, 1080)) -> None:
         """
         Export annotations to YOLO format.
         
@@ -142,12 +145,11 @@ class AnnotationExporter:
         Args:
             annotations_list: List of annotation dicts from generator
             output_dir: Directory to save YOLO txt files
+            image_size: Tuple of (width, height) in pixels
         """
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        image_width = 1920  # TODO: Get from config
-        image_height = 1080
-        
+        image_width, image_height = image_size
         total_objects = 0
         
         for ann_data in annotations_list:
