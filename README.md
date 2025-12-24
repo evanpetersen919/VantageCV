@@ -69,6 +69,7 @@ VantageCV/                         # Realistic starting point
 │   ├── config.py                 # Config loader (YAML)
 │   ├── generator.py              # Main generation logic
 │   ├── annotator.py              # Annotation generation & export
+│   ├── ue5_bridge.py             # UE5 Remote Control API client
 │   └── utils.py                  # Helper functions
 │
 ├── ue5_plugin/                    # C++ Unreal Engine 5 Plugin
