@@ -162,17 +162,46 @@ class SyntheticDataGenerator:
     
     def _capture_image(self, output_path: Path) -> None:
         """
-        Capture image from UE5.
+        Capture image from UE5 rendering engine.
         
-        TODO: Replace with actual UE5 C++ plugin communication
-        For now, generates a placeholder image
+        Currently generates placeholder images for development and testing.
+        Will be replaced with actual UE5 C++ plugin communication.
+        
+        Args:
+            output_path: Filesystem path where the captured image will be saved
+            
+        Raises:
+            ValueError: If resolution configuration is invalid
+            IOError: If image cannot be saved to output_path
+        
+        TODO: Implement UE5 bridge: self.ue5_bridge.capture_frame(str(output_path))
         """
-        # TODO: self.ue5_bridge.capture_frame(str(output_path))
-        
-        # Placeholder: Create dummy image
+        # Parse resolution from config (supports both list and dict formats)
         resolution = self.config.get('camera.resolution', [1920, 1080])
-        dummy_image = np.random.randint(0, 255, (*resolution[::-1], 3), dtype=np.uint8)
-        Image.fromarray(dummy_image).save(output_path)
+        
+        if isinstance(resolution, dict):
+            width = resolution.get('width', 1920)
+            height = resolution.get('height', 1080)
+        elif isinstance(resolution, (list, tuple)) and len(resolution) == 2:
+            width, height = resolution[0], resolution[1]
+        else:
+            raise ValueError(
+                f"Invalid resolution format: {resolution}. "
+                f"Expected list [width, height] or dict {{width: X, height: Y}}"
+            )
+        
+        # Validate resolution values
+        if not (isinstance(width, int) and isinstance(height, int)):
+            raise ValueError(f"Resolution dimensions must be integers: width={width}, height={height}")
+        if width <= 0 or height <= 0:
+            raise ValueError(f"Resolution dimensions must be positive: width={width}, height={height}")
+        
+        # Generate placeholder image (RGB, 8-bit per channel)
+        try:
+            dummy_image = np.random.randint(0, 255, (height, width, 3), dtype=np.uint8)
+            Image.fromarray(dummy_image).save(output_path)
+        except Exception as e:
+            raise IOError(f"Failed to save image to {output_path}: {str(e)}") from e
     
     def _export_annotations(self, output_path: Path, annotations_dir: Path) -> None:
         """Export annotations to COCO and YOLO formats."""

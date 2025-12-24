@@ -1,0 +1,2 @@
+# This file ensures the data/ directory structure is preserved in git
+# Actual generated data files are excluded via .gitignore

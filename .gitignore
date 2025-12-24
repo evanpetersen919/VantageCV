@@ -22,6 +22,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.log
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -29,8 +30,6 @@ wheels/
 # PyTorch
 *.pth
 *.pt
-checkpoints/
-models/saved/
 
 # ONNX
 *.onnx
@@ -39,13 +38,25 @@ models/saved/
 mlruns/
 mlartifacts/
 
-# Data
-data/raw/
-data/processed/
-data/synthetic/
-data/annotations/
-*.zip
-*.tar.gz
+# Generated Data (exclude all generated datasets)
+data/
+!data/.gitkeep
+
+# Models (exclude all trained models and checkpoints)
+models/checkpoints/
+models/onnx/
+*.pth
+*.onnx
+
+# Test outputs and temporary files
+*_test/
+temp/
+tmp/
+*.tmp
+
+# Documentation - exclude completion reports (keep README only)
+PHASE1_COMPLETE.md
+NEXT_STEPS.md
 
 # Unreal Engine
 UnrealEngine/Intermediate/
@@ -95,6 +106,7 @@ ue5_plugin/Build/
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Docker
 .dockerignore
