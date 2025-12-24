@@ -8,9 +8,18 @@
 #==============================================================================
 
 import random
+import logging
 import numpy as np
 from typing import Dict, Any, List
 from .base import BaseDomain
+from vantagecv.randomization import (
+    LightingRandomizer,
+    MaterialRandomizer,
+    CameraRandomizer,
+    ObjectRandomizer
+)
+
+logger = logging.getLogger(__name__)
 
 
 class IndustrialDomain(BaseDomain):
@@ -45,7 +54,7 @@ class IndustrialDomain(BaseDomain):
         
         TODO: Replace with actual UE5 C++ plugin communication
         """
-        print(f"[Industrial] Setting up PCB inspection scene")
+        logger.info(f"Setting up PCB inspection scene")
         
         # TODO: UE5 plugin calls
         # self.ue5_bridge.load_map("PCB_InspectionLab")
@@ -55,7 +64,7 @@ class IndustrialDomain(BaseDomain):
         # Mock: Simulate loading PCB
         pcb_types = ['single_layer', 'double_layer', 'multi_layer']
         self.current_pcb = random.choice(pcb_types)
-        print(f"[Industrial] Loaded {self.current_pcb} PCB with {len(self.component_types)} component types")
+        logger.info(f"Loaded {self.current_pcb} PCB with {len(self.component_types)} component types")
         
         return True
     
@@ -63,52 +72,54 @@ class IndustrialDomain(BaseDomain):
         """
         Apply domain randomization for PCB inspection.
         
-        Randomization includes:
-        - Lighting: intensity, angle, color temperature (industrial LEDs)
-        - Materials: PCB surface finish (matte/glossy), solder shine
-        - Poses: PCB rotation (0-360°), slight tilt angles
-        - Defects: inject realistic manufacturing defects
-        - Camera: FOV, height, viewing angle variation
+        Uses structured randomization utilities for:
+        - Lighting: Industrial LED arrays with realistic parameters
+        - Materials: PCB surface finish variations
+        - Camera: Inspection camera positioning
+        - Objects: Component placement on PCB
+        - Defects: Manufacturing defect injection (30% rate)
+        
+        Returns:
+            Complete randomization parameter dictionary
         """
-        randomization_params = {
-            'lighting': {
-                'intensity': random.uniform(0.6, 1.8),  # Industrial LED range
-                'color_temp': random.randint(4000, 6500),  # Cool white LEDs
-                'num_sources': random.randint(2, 4),  # Multi-directional lighting
-                'shadow_softness': random.uniform(0.3, 0.7)
-            },
-            'material': {
-                'pcb_finish': random.choice(['matte_green', 'glossy_green', 'blue', 'black']),
-                'solder_metallic': random.uniform(0.7, 0.95),
-                'copper_oxidation': random.uniform(0.0, 0.2),  # Surface aging
-                'silkscreen_clarity': random.uniform(0.85, 1.0)
-            },
-            'pose': {
-                'rotation_z': random.uniform(0, 360),  # PCB can be any orientation
-                'tilt_x': random.uniform(-5, 5),  # Slight manufacturing variations
-                'tilt_y': random.uniform(-5, 5),
-                'position_offset': [random.uniform(-3, 3), random.uniform(-3, 3)]
-            },
-            'defects': {
-                'has_defect': random.random() < 0.30,  # 30% defect rate for training
-                'defect_type': random.choice(self.defect_types) if random.random() < 0.30 else None,
-                'defect_severity': random.uniform(0.2, 1.0) if random.random() < 0.30 else 0.0
-            },
-            'camera': {
-                'fov': random.uniform(55, 75),  # Inspection camera range
-                'height_cm': random.uniform(35, 55),
-                'angle_deviation': random.uniform(-10, 10)  # From perpendicular
-            }
+        # Use randomization utilities for consistent, realistic parameters
+        lighting_params = LightingRandomizer.randomize_industrial_lighting()
+        material_params = MaterialRandomizer.randomize_pcb_materials()
+        camera_params = CameraRandomizer.randomize_inspection_camera(
+            height_range=(35, 55),
+            angle_deviation=10.0
+        )
+        
+        # PCB pose randomization
+        pose_params = {
+            'rotation_z': random.uniform(0, 360),
+            'tilt_x': random.uniform(-5, 5),
+            'tilt_y': random.uniform(-5, 5),
+            'position_offset': camera_params['position_offset_xy']
         }
         
-        # TODO: Apply to UE5 scene
-        # self.ue5_bridge.set_light_params(randomization_params['lighting'])
-        # self.ue5_bridge.set_material_properties(randomization_params['material'])
-        # self.ue5_bridge.rotate_actor('PCB', randomization_params['pose'])
-        # if randomization_params['defects']['has_defect']:
-        #     self.ue5_bridge.inject_defect(randomization_params['defects'])
+        # Defect injection (30% defect rate for training)
+        has_defect = random.random() < 0.30
+        defect_params = {
+            'has_defect': has_defect,
+            'defect_type': random.choice(self.defect_types) if has_defect else None,
+            'defect_severity': random.uniform(0.2, 1.0) if has_defect else 0.0
+        }
         
-        print(f"[Industrial] Randomized - Defect: {randomization_params['defects']['defect_type']}")
+        randomization_params = {
+            'lighting': lighting_params,
+            'material': material_params,
+            'camera': camera_params,
+            'pose': pose_params,
+            'defects': defect_params
+        }
+        
+        logger.debug(
+            f"Industrial randomization: "
+            f"lighting_intensity={lighting_params['intensity']:.2f}, "
+            f"camera_height={camera_params['height_cm']:.1f}cm, "
+            f"defect={defect_params['defect_type']}"
+        )
         
         return randomization_params
     
@@ -234,7 +245,7 @@ class IndustrialDomain(BaseDomain):
         is_valid = random.random() > 0.08
         
         if not is_valid:
-            print("[Industrial] Scene validation failed - regenerating")
+            logger.debug("Scene validation failed - regenerating")
         
         return is_valid
 

@@ -179,11 +179,11 @@ I'm building this project in **4 phases**:
 - [x] Implement COCO and YOLO annotation exporters
 - [x] Support both UE5 rendering and mock data modes
 
-### Phase 2: Core Pipeline (Week 2)
-- [ ] Implement complete annotation pipeline (bbox, masks, 6D poses)
-- [ ] Add COCO and YOLO exporters
-- [ ] Build domain randomization system
-- [ ] Create data validation utilities
+### Phase 2: Core Pipeline (COMPLETED)
+- [x] Implement complete annotation pipeline (bbox, masks, 6D poses)
+- [x] Add COCO and YOLO exporters
+- [x] Build domain randomization system
+- [x] Create data validation utilities
 - [ ] Generate first 1000-image dataset
 
 ### Phase 3: ML Pipeline (Week 3)

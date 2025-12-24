@@ -109,7 +109,7 @@ class SyntheticDataGenerator:
         print("[1/4] Setting up scene...")
         if not self.domain.setup_scene():
             raise RuntimeError("Failed to setup scene")
-        print("✓ Scene setup complete\n")
+        print("Scene setup complete\n")
         
         self.stats['start_time'] = datetime.now()
         generated_count = 0
@@ -128,7 +128,7 @@ class SyntheticDataGenerator:
                 self.stats['rejected'] += 1
                 continue
             
-            # Capture image (TODO: Replace with actual UE5 capture)
+            # Capture image (mock data for now, UE5 rendering when connected)
             image_filename = f"image_{generated_count:06d}.png"
             image_path = images_dir / image_filename
             self._capture_image(image_path)
@@ -159,17 +159,17 @@ class SyntheticDataGenerator:
         
         self.stats['end_time'] = datetime.now()
         
-        print(f"\n✓ Image generation complete\n")
+        print("\nImage generation complete\n")
         
         # Export annotations to standard formats
         print("[3/4] Exporting annotations...")
         self._export_annotations(output_path, annotations_dir)
-        print("✓ Annotations exported\n")
+        print("Annotations exported\n")
         
         # Save generation metadata
         print("[4/4] Saving metadata...")
         self._save_metadata(output_path)
-        print("✓ Metadata saved\n")
+        print("Metadata saved\n")
         
         # Print summary
         duration = (self.stats['end_time'] - self.stats['start_time']).total_seconds()

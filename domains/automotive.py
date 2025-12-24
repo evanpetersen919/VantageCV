@@ -8,8 +8,18 @@
 #==============================================================================
 
 import random
+import logging
+import numpy as np
 from typing import Dict, Any, List
 from .base import BaseDomain
+from vantagecv.randomization import (
+    LightingRandomizer,
+    MaterialRandomizer,
+    CameraRandomizer,
+    ObjectRandomizer
+)
+
+logger = logging.getLogger(__name__)
 
 
 class AutomotiveDomain(BaseDomain):
@@ -44,7 +54,7 @@ class AutomotiveDomain(BaseDomain):
         
         TODO: Replace with actual UE5 C++ plugin communication
         """
-        print(f"[Automotive] Setting up driving scene")
+        logger.info(f"Setting up driving scene")
         
         # TODO: UE5 plugin calls
         # self.ue5_bridge.load_map("UrbanEnvironment")
@@ -54,7 +64,7 @@ class AutomotiveDomain(BaseDomain):
         # Mock: Simulate loading scene
         scene_types = ['urban_street', 'highway', 'parking_lot', 'residential']
         current_scene = random.choice(scene_types)
-        print(f"[Automotive] Loaded {current_scene} with {len(self.object_types)} object types")
+        logger.info(f"Loaded {current_scene} with {len(self.object_types)} object types")
         
         return True
     
@@ -62,56 +72,77 @@ class AutomotiveDomain(BaseDomain):
         """
         Apply domain randomization for automotive scenarios.
         
-        Randomization includes:
-        - Weather: clear, rain, fog, snow
-        - Time of day: dawn to night (affects lighting)
-        - Traffic: vehicle density, types, speeds
-        - Pedestrians: quantity, positions, actions
-        - Camera: ego vehicle position, speed
+        Uses structured randomization for:
+        - Weather: Clear, rain, fog, snow conditions
+        - Lighting: Time of day (dawn, day, dusk, night)
+        - Traffic: Vehicle density and types
+        - Pedestrians: Quantity and behaviors
+        - Camera: Vehicle-mounted camera parameters
+        
+        Returns:
+            Complete randomization parameter dictionary
         """
-        randomization_params = {
-            'weather': {
-                'type': random.choice(self.weather_types),
-                'intensity': random.uniform(0.3, 1.0),
-                'fog_density': random.uniform(0.0, 0.5) if random.random() < 0.2 else 0.0,
-                'rain_intensity': random.uniform(0.0, 0.8) if random.random() < 0.3 else 0.0
-            },
-            'lighting': {
-                'time_of_day': random.choice(self.times_of_day),
-                'sun_angle': random.uniform(-15, 80),  # degrees above horizon
-                'ambient_intensity': random.uniform(0.4, 1.0),
-                'shadow_intensity': random.uniform(0.5, 0.9)
-            },
-            'traffic': {
-                'num_vehicles': random.randint(2, 15),
-                'vehicle_types': random.choices(['sedan', 'suv', 'truck', 'bus'], k=random.randint(2, 5)),
-                'traffic_density': random.choice(['light', 'medium', 'heavy']),
-                'speed_variation': random.uniform(0.7, 1.3)  # Multiplier
-            },
-            'pedestrians': {
-                'num_pedestrians': random.randint(0, 8),
-                'on_sidewalk': random.random() < 0.8,  # 80% on sidewalk
-                'crossing_street': random.random() < 0.2  # 20% crossing
-            },
-            'ego_vehicle': {
-                'speed_kmh': random.uniform(20, 80),
-                'lane_position': random.choice(['center', 'left', 'right']),
-                'following_distance': random.uniform(10, 40)  # meters
-            },
-            'camera': {
-                'fov': random.uniform(70, 90),  # Wide FOV for driving
-                'height_m': random.uniform(1.2, 1.8),  # Car camera height
-                'tilt_degrees': random.uniform(-5, 5)
-            }
+        # Weather conditions
+        weather_type = random.choice(self.weather_types)
+        weather_params = {
+            'type': weather_type,
+            'intensity': random.uniform(0.3, 1.0),
+            'fog_density': random.uniform(0.0, 0.5) if weather_type == 'fog' else 0.0,
+            'rain_intensity': random.uniform(0.0, 0.8) if weather_type == 'rain' else 0.0
         }
         
-        # TODO: Apply to UE5 scene
-        # self.ue5_bridge.set_weather(randomization_params['weather'])
-        # self.ue5_bridge.set_time_of_day(randomization_params['lighting'])
-        # self.ue5_bridge.spawn_traffic(randomization_params['traffic'])
+        # Time of day lighting
+        time_of_day = random.choice(self.times_of_day)
+        lighting_params = LightingRandomizer.randomize_automotive_lighting(time_of_day)
         
-        print(f"[Automotive] Randomized - Weather: {randomization_params['weather']['type']}, "
-              f"Time: {randomization_params['lighting']['time_of_day']}")
+        # Camera parameters for vehicle-mounted camera
+        camera_params = CameraRandomizer.randomize_vehicle_camera(
+            height_range=(1.2, 1.8),
+            tilt_range=(-5, 5)
+        )
+        
+        # Traffic density and composition
+        num_vehicles = random.randint(2, 15)
+        traffic_params = {
+            'num_vehicles': num_vehicles,
+            'vehicle_types': random.choices(
+                ['sedan', 'suv', 'truck', 'bus'],
+                k=min(num_vehicles, 5)
+            ),
+            'traffic_density': 'light' if num_vehicles < 5 else 'medium' if num_vehicles < 10 else 'heavy',
+            'speed_variation': random.uniform(0.7, 1.3)
+        }
+        
+        # Pedestrian scenarios
+        pedestrian_params = {
+            'num_pedestrians': random.randint(0, 8),
+            'on_sidewalk': random.random() < 0.8,
+            'crossing_street': random.random() < 0.2
+        }
+        
+        # Ego vehicle state
+        ego_vehicle_params = {
+            'speed_kmh': random.uniform(20, 80),
+            'lane_position': random.choice(['center', 'left', 'right']),
+            'following_distance': random.uniform(10, 40)
+        }
+        
+        randomization_params = {
+            'weather': weather_params,
+            'lighting': lighting_params,
+            'camera': camera_params,
+            'traffic': traffic_params,
+            'pedestrians': pedestrian_params,
+            'ego_vehicle': ego_vehicle_params
+        }
+        
+        logger.debug(
+            f"Automotive randomization: "
+            f"weather={weather_type}, "
+            f"time={time_of_day}, "
+            f"vehicles={num_vehicles}, "
+            f"pedestrians={pedestrian_params['num_pedestrians']}"
+        )
         
         return randomization_params
     
@@ -250,7 +281,7 @@ class AutomotiveDomain(BaseDomain):
         is_valid = random.random() > 0.10
         
         if not is_valid:
-            print("[Automotive] Scene validation failed - regenerating")
+            logger.debug("Scene validation failed - regenerating")
         
         return is_valid
 
