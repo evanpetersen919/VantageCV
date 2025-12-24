@@ -71,7 +71,7 @@ void ASceneController::RandomizeLighting(float MinIntensity, float MaxIntensity,
 		}
 		else if (APointLight* PtLight = Cast<APointLight>(Light))
 		{
-			UPointLightComponent* LightComp = PtLight->GetComponent();
+			UPointLightComponent* LightComp = Cast<UPointLightComponent>(PtLight->GetLightComponent());
 			if (LightComp)
 			{
 				LightComp->SetIntensity(RandomIntensity);
@@ -80,7 +80,7 @@ void ASceneController::RandomizeLighting(float MinIntensity, float MaxIntensity,
 		}
 		else if (ASpotLight* SpLight = Cast<ASpotLight>(Light))
 		{
-			USpotLightComponent* LightComp = SpLight->GetComponent();
+			USpotLightComponent* LightComp = Cast<USpotLightComponent>(SpLight->GetLightComponent());
 			if (LightComp)
 			{
 				LightComp->SetIntensity(RandomIntensity);
@@ -263,7 +263,7 @@ TArray<ALight*> ASceneController::GetSceneLights() const
 	return Lights;
 }
 
-TArray<AActor*> ASceneController::GetActorsByTags(const TArray<FString>& Tags) const
+TArray<AActor*> ASceneController::GetActorsByTags(const TArray<FString>& FilterTags) const
 {
 	TArray<AActor*> FoundActors;
 	UWorld* World = GetWorld();
@@ -272,7 +272,7 @@ TArray<AActor*> ASceneController::GetActorsByTags(const TArray<FString>& Tags) c
 	for (TActorIterator<AActor> It(World); It; ++It)
 	{
 		AActor* Actor = *It;
-		for (const FString& Tag : Tags)
+		for (const FString& Tag : FilterTags)
 		{
 			if (Actor->ActorHasTag(FName(*Tag)))
 			{

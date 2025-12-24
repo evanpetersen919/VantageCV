@@ -20,8 +20,9 @@
 #include "Kismet/GameplayStatics.h"
 #include "EngineUtils.h"
 #include "Engine/Engine.h"
-#include "ImageWriteQueue.h"
-#include "ImageWriteTask.h"
+#include "Async/Async.h"
+#include "HAL/PlatformFileManager.h"
+#include "Misc/FileHelper.h"
 #include "Json.h"
 #include "JsonUtilities.h"
 
@@ -243,7 +244,7 @@ FString ADataCapture::GeneratePoseAnnotations(const TArray<FString>& TargetTags)
 	return OutputString;
 }
 
-TArray<AActor*> ADataCapture::GetAnnotatableActors(const TArray<FString>& Tags) const
+TArray<AActor*> ADataCapture::GetAnnotatableActors(const TArray<FString>& FilterTags) const
 {
 	TArray<AActor*> FoundActors;
 	UWorld* World = GetWorld();
@@ -252,7 +253,7 @@ TArray<AActor*> ADataCapture::GetAnnotatableActors(const TArray<FString>& Tags) 
 	for (TActorIterator<AActor> It(World); It; ++It)
 	{
 		AActor* Actor = *It;
-		for (const FString& Tag : Tags)
+		for (const FString& Tag : FilterTags)
 		{
 			if (Actor->ActorHasTag(FName(*Tag)))
 			{
@@ -326,18 +327,19 @@ bool ADataCapture::SaveRenderTargetToFile(UTextureRenderTarget2D* InRenderTarget
 		return false;
 	}
 
-	// Use ImageWriteQueue for async file writing
-	TUniquePtr<FImageWriteTask> ImageTask = MakeUnique<FImageWriteTask>();
-	ImageTask->PixelData = MakeUnique<TImagePixelData<FColor>>(
-		FIntPoint(InRenderTarget->SizeX, InRenderTarget->SizeY),
-		TArray64<FColor>(Pixels)
-	);
-	ImageTask->Filename = FilePath;
-	ImageTask->Format = EImageFormat::PNG;
-	ImageTask->CompressionQuality = 100;
-
-	FImageWriteQueue& ImageQueue = FModuleManager::LoadModuleChecked<IImageWriteQueueModule>("ImageWriteQueue").GetWriteQueue();
-	ImageQueue.Enqueue(MoveTemp(ImageTask));
+	// Use FImageUtils for high-quality PNG export (research-grade quality)
+	// Save asynchronously to avoid blocking game thread
+	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [Pixels, FilePath, Width = InRenderTarget->SizeX, Height = InRenderTarget->SizeY]()
+	{
+		IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(FName("ImageWrapper"));
+		TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
+		
+		if (ImageWrapper.IsValid() && ImageWrapper->SetRaw(Pixels.GetData(), Pixels.Num() * sizeof(FColor), Width, Height, ERGBFormat::BGRA, 8))
+		{
+			const TArray64<uint8>& CompressedData = ImageWrapper->GetCompressed(100);
+			FFileHelper::SaveArrayToFile(CompressedData, *FilePath);
+		}
+	});
 
 	return true;
 }
