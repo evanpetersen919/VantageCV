@@ -2,15 +2,27 @@
  * VantageCV - Scene Controller Implementation
  ******************************************************************************
  * File: SceneController.cpp
- * Description: Implementation of scene randomization logic for synthetic data
- *              generation including lighting, materials, and object placement
+ * Description: Implementation of scene randomization for synthetic data
+ *              generation with lighting, materials, camera, and object control
  * Author: Evan Petersen
  * Date: December 2025
  *****************************************************************************/
 
 #include "SceneController.h"
 #include "Engine/DirectionalLight.h"
+#include "Engine/PointLight.h"
+#include "Engine/SpotLight.h"
 #include "Components/DirectionalLightComponent.h"
+#include "Components/PointLightComponent.h"
+#include "Components/SpotLightComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "EngineUtils.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogSceneController, Log, All);
 
 ASceneController::ASceneController()
 {
@@ -20,7 +32,7 @@ ASceneController::ASceneController()
 void ASceneController::BeginPlay()
 {
 	Super::BeginPlay();
-	SetupDefaultLighting();
+	UE_LOG(LogSceneController, Log, TEXT("SceneController initialized"));
 }
 
 void ASceneController::Tick(float DeltaTime)
@@ -28,34 +40,268 @@ void ASceneController::Tick(float DeltaTime)
 	Super::Tick(DeltaTime);
 }
 
-void ASceneController::RandomizeLighting()
+void ASceneController::RandomizeLighting(float MinIntensity, float MaxIntensity, 
+	float MinTemperature, float MaxTemperature)
 {
-	// TODO: Implement lighting randomization
-	// - Random light intensity
-	// - Random light color
-	// - Random light direction
-	UE_LOG(LogTemp, Log, TEXT("Randomizing scene lighting"));
+	TArray<ALight*> Lights = GetSceneLights();
+	
+	for (ALight* Light : Lights)
+	{
+		if (!Light) continue;
+
+		// Randomize intensity
+		float RandomIntensity = FMath::RandRange(MinIntensity, MaxIntensity);
+		
+		// Randomize color temperature
+		float RandomTemp = FMath::RandRange(MinTemperature, MaxTemperature);
+		FLinearColor LightColor = FLinearColor::MakeFromColorTemperature(RandomTemp);
+
+		if (ADirectionalLight* DirLight = Cast<ADirectionalLight>(Light))
+		{
+			UDirectionalLightComponent* LightComp = DirLight->GetComponent();
+			if (LightComp)
+			{
+				LightComp->SetIntensity(RandomIntensity);
+				LightComp->SetLightColor(LightColor);
+				
+				// Randomize direction for sun position variation
+				FRotator RandomRotation = GetRandomRotation();
+				DirLight->SetActorRotation(RandomRotation);
+			}
+		}
+		else if (APointLight* PtLight = Cast<APointLight>(Light))
+		{
+			UPointLightComponent* LightComp = PtLight->GetComponent();
+			if (LightComp)
+			{
+				LightComp->SetIntensity(RandomIntensity);
+				LightComp->SetLightColor(LightColor);
+			}
+		}
+		else if (ASpotLight* SpLight = Cast<ASpotLight>(Light))
+		{
+			USpotLightComponent* LightComp = SpLight->GetComponent();
+			if (LightComp)
+			{
+				LightComp->SetIntensity(RandomIntensity);
+				LightComp->SetLightColor(LightColor);
+			}
+		}
+	}
+	
+	UE_LOG(LogSceneController, Log, TEXT("Randomized %d lights (Intensity: %.2f-%.2f, Temp: %.0fK-%.0fK)"), 
+		Lights.Num(), MinIntensity, MaxIntensity, MinTemperature, MaxTemperature);
 }
 
-void ASceneController::RandomizeMaterials()
+void ASceneController::RandomizeMaterials(const TArray<FString>& TargetTags)
 {
-	// TODO: Implement material randomization
-	// - Apply random materials to objects
-	// - Randomize material parameters
-	UE_LOG(LogTemp, Log, TEXT("Randomizing object materials"));
+	TArray<AActor*> TargetActors = GetActorsByTags(TargetTags);
+	int32 ModifiedCount = 0;
+
+	for (AActor* Actor : TargetActors)
+	{
+		if (!Actor) continue;
+
+		TArray<UStaticMeshComponent*> MeshComponents;
+		Actor->GetComponents<UStaticMeshComponent>(MeshComponents);
+
+		for (UStaticMeshComponent* MeshComp : MeshComponents)
+		{
+			if (!MeshComp) continue;
+
+			// Create dynamic material instance for randomization
+			for (int32 i = 0; i < MeshComp->GetNumMaterials(); ++i)
+			{
+				UMaterialInterface* Material = MeshComp->GetMaterial(i);
+				if (!Material) continue;
+
+				UMaterialInstanceDynamic* DynMaterial = MeshComp->CreateAndSetMaterialInstanceDynamic(i);
+				if (DynMaterial)
+				{
+					// Randomize common material parameters
+					DynMaterial->SetScalarParameterValue(FName("Metallic"), FMath::RandRange(0.0f, 1.0f));
+					DynMaterial->SetScalarParameterValue(FName("Roughness"), FMath::RandRange(0.0f, 1.0f));
+					DynMaterial->SetScalarParameterValue(FName("Specular"), FMath::RandRange(0.3f, 0.9f));
+					
+					// Randomize base color tint
+					FLinearColor RandomTint = FLinearColor(
+						FMath::RandRange(0.8f, 1.2f),
+						FMath::RandRange(0.8f, 1.2f),
+						FMath::RandRange(0.8f, 1.2f)
+					);
+					DynMaterial->SetVectorParameterValue(FName("BaseColorTint"), RandomTint);
+					
+					ModifiedCount++;
+				}
+			}
+		}
+	}
+	
+	UE_LOG(LogSceneController, Log, TEXT("Randomized materials on %d actors (%d materials modified)"), 
+		TargetActors.Num(), ModifiedCount);
 }
 
-void ASceneController::SpawnRandomObjects(int32 NumObjects)
+void ASceneController::RandomizeCamera(float MinDistance, float MaxDistance, float MinFOV, float MaxFOV)
 {
-	// TODO: Implement object spawning
-	// - Spawn objects at random positions
-	// - Apply random rotations
-	// - Ensure no collisions
-	UE_LOG(LogTemp, Log, TEXT("Spawning %d random objects"), NumObjects);
+	UWorld* World = GetWorld();
+	if (!World) return;
+
+	// Find player camera or spawn one
+	APlayerCameraManager* CameraManager = UGameplayStatics::GetPlayerCameraManager(World, 0);
+	if (!CameraManager) return;
+
+	// Random spherical coordinates for camera placement
+	float Distance = FMath::RandRange(MinDistance, MaxDistance);
+	float Theta = FMath::RandRange(0.0f, 360.0f);
+	float Phi = FMath::RandRange(-45.0f, 45.0f);
+
+	FVector CameraLocation = FVector(
+		Distance * FMath::Cos(FMath::DegreesToRadians(Theta)) * FMath::Cos(FMath::DegreesToRadians(Phi)),
+		Distance * FMath::Sin(FMath::DegreesToRadians(Theta)) * FMath::Cos(FMath::DegreesToRadians(Phi)),
+		Distance * FMath::Sin(FMath::DegreesToRadians(Phi))
+	);
+
+	// Look at origin (or target object)
+	FRotator CameraRotation = (FVector::ZeroVector - CameraLocation).Rotation();
+	
+	CameraManager->SetActorLocationAndRotation(CameraLocation, CameraRotation);
+
+	// Randomize FOV
+	float RandomFOV = FMath::RandRange(MinFOV, MaxFOV);
+	CameraManager->SetFOV(RandomFOV);
+	
+	UE_LOG(LogSceneController, Log, TEXT("Randomized camera (Dist: %.2f, FOV: %.2f, Rot: %s)"), 
+		Distance, RandomFOV, *CameraRotation.ToString());
 }
 
-void ASceneController::SetupDefaultLighting()
+void ASceneController::SpawnRandomObjects(int32 NumObjects, const TArray<FString>& ObjectClasses)
 {
-	// Setup default lighting configuration
-	UE_LOG(LogTemp, Log, TEXT("Setting up default lighting"));
+	UWorld* World = GetWorld();
+	if (!World || ObjectClasses.Num() == 0)
+	{
+		UE_LOG(LogSceneController, Warning, TEXT("Cannot spawn objects: Invalid world or empty ObjectClasses"));
+		return;
+	}
+
+	FVector SpawnCenter = GetActorLocation();
+	float SpawnRadius = 500.0f;
+
+	for (int32 i = 0; i < NumObjects; ++i)
+	{
+		// Random object class from provided list
+		const FString& ClassName = ObjectClasses[FMath::RandRange(0, ObjectClasses.Num() - 1)];
+		
+		// Random spawn location
+		FVector SpawnLocation = GetRandomLocation(SpawnCenter, SpawnRadius);
+		FRotator SpawnRotation = GetRandomRotation();
+
+		// Spawn parameters
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+		// Note: In production, load actual asset classes from content browser
+		// For now, spawn simple static mesh actors as placeholders
+		AActor* SpawnedActor = World->SpawnActor<AActor>(AActor::StaticClass(), SpawnLocation, SpawnRotation, SpawnParams);
+		
+		if (SpawnedActor)
+		{
+			SpawnedActors.Add(SpawnedActor);
+		}
+	}
+	
+	UE_LOG(LogSceneController, Log, TEXT("Spawned %d objects from %d classes"), 
+		NumObjects, ObjectClasses.Num());
+}
+
+void ASceneController::ClearSpawnedObjects()
+{
+	for (AActor* Actor : SpawnedActors)
+	{
+		if (Actor && Actor->IsValidLowLevel())
+		{
+			Actor->Destroy();
+		}
+	}
+	
+	int32 ClearedCount = SpawnedActors.Num();
+	SpawnedActors.Empty();
+	
+	UE_LOG(LogSceneController, Log, TEXT("Cleared %d spawned objects"), ClearedCount);
+}
+
+void ASceneController::SetLightingPreset(const FString& PresetName)
+{
+	if (PresetName == TEXT("IndustrialLED"))
+	{
+		RandomizeLighting(50000.0f, 100000.0f, 5000.0f, 6500.0f);
+	}
+	else if (PresetName == TEXT("OutdoorSun"))
+	{
+		RandomizeLighting(80000.0f, 120000.0f, 5500.0f, 6500.0f);
+	}
+	else if (PresetName == TEXT("StudioSoft"))
+	{
+		RandomizeLighting(20000.0f, 40000.0f, 3200.0f, 4500.0f);
+	}
+	else
+	{
+		UE_LOG(LogSceneController, Warning, TEXT("Unknown lighting preset: %s"), *PresetName);
+	}
+}
+
+TArray<ALight*> ASceneController::GetSceneLights() const
+{
+	TArray<ALight*> Lights;
+	UWorld* World = GetWorld();
+	if (!World) return Lights;
+
+	for (TActorIterator<ALight> It(World); It; ++It)
+	{
+		Lights.Add(*It);
+	}
+
+	return Lights;
+}
+
+TArray<AActor*> ASceneController::GetActorsByTags(const TArray<FString>& Tags) const
+{
+	TArray<AActor*> FoundActors;
+	UWorld* World = GetWorld();
+	if (!World) return FoundActors;
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		for (const FString& Tag : Tags)
+		{
+			if (Actor->ActorHasTag(FName(*Tag)))
+			{
+				FoundActors.Add(Actor);
+				break;
+			}
+		}
+	}
+
+	return FoundActors;
+}
+
+FRotator ASceneController::GetRandomRotation() const
+{
+	return FRotator(
+		FMath::RandRange(-180.0f, 180.0f),
+		FMath::RandRange(-180.0f, 180.0f),
+		FMath::RandRange(-180.0f, 180.0f)
+	);
+}
+
+FVector ASceneController::GetRandomLocation(const FVector& Center, float Radius) const
+{
+	float RandomAngle = FMath::RandRange(0.0f, 360.0f);
+	float RandomDistance = FMath::RandRange(0.0f, Radius);
+	
+	return Center + FVector(
+		RandomDistance * FMath::Cos(FMath::DegreesToRadians(RandomAngle)),
+		RandomDistance * FMath::Sin(FMath::DegreesToRadians(RandomAngle)),
+		0.0f
+	);
 }

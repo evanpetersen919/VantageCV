@@ -39,7 +39,12 @@ public class VantageCV : ModuleRules
 				"InputCore",
 				"RenderCore",
 				"RHI",
-				"ImageWrapper"
+				"ImageWrapper",
+				"RemoteControl",
+				"RemoteControlProtocol",
+				"ImageWriteQueue",
+				"JsonUtilities",
+				"Json"
 			}
 			);
 			

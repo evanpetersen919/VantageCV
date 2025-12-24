@@ -179,12 +179,13 @@ I'm building this project in **4 phases**:
 - [x] Implement COCO and YOLO annotation exporters
 - [x] Support both UE5 rendering and mock data modes
 
-### Phase 2: Core Pipeline (COMPLETED)
+### Phase 2: Core Pipeline (4/5 COMPLETE)
 - [x] Implement complete annotation pipeline (bbox, masks, 6D poses)
 - [x] Add COCO and YOLO exporters
 - [x] Build domain randomization system
 - [x] Create data validation utilities
-- [ ] Generate first 1000-image dataset
+- [x] Complete UE5 C++ plugin implementation (SceneController, DataCapture)
+- [ ] Generate first 1000-image photorealistic dataset
 
 ### Phase 3: ML Pipeline (Week 3)
 - [ ] Implement multi-task model architecture
@@ -234,12 +235,47 @@ I'm building this project in **4 phases**:
 
 ## Key Implementation Details
 
+### UE5 C++ Plugin Architecture
+
+**Production-Ready Native C++ Implementation:**
+- **VantageCVModule**: Plugin initialization with Remote Control API endpoint registration
+- **SceneController**: Professional scene randomization (lighting, materials, camera, object placement)
+- **DataCapture**: High-performance image capture and ground truth annotation extraction
+- Comprehensive logging with dedicated log categories (LogVantageCV, LogSceneController, LogDataCapture)
+- Async image writing via ImageWriteQueue for non-blocking capture
+- JSON serialization for Python-compatible annotation format
+- Full type safety with UE5 reflection system (UFUNCTION, UPROPERTY, USTRUCT)
+
+**Plugin Features:**
+- Multi-light randomization (DirectionalLight, PointLight, SpotLight) with intensity/color/direction control
+- Dynamic material instance creation for runtime parameter randomization (metallic, roughness, specular, base color)
+- Spherical camera placement with configurable distance and FOV ranges
+- Actor spawning with collision handling and lifetime tracking
+- 3D-to-2D bounding box projection from actor bounds
+- 6D pose extraction (translation, rotation, scale) in JSON format
+- Segmentation mask rendering via scene capture source switching
+- Tag-based actor filtering for domain-specific annotation
+
+**Python Bridge Integration:**
+```python
+from vantagecv.ue5_bridge import UE5Bridge
+
+bridge = UE5Bridge(host="localhost", port=30010)
+bridge.call_function("SceneController", "RandomizeLighting", 
+    MinIntensity=50000.0, MaxIntensity=100000.0,
+    MinTemperature=5000.0, MaxTemperature=6500.0)
+bridge.call_function("DataCapture", "CaptureFrame",
+    OutputPath="F:/dataset/img_0001.png", Width=1920, Height=1080)
+```
+
+See [ue5_plugin/README.md](ue5_plugin/README.md) for complete API documentation and installation instructions.
+
 ### UE5 Integration Strategy
 
 **Custom C++ Plugin Approach** (chosen for maximum performance):
 - Native C++ plugin for scene manipulation and data capture
 - Python bridge using UE5's Remote Control API for high-level orchestration
-- Direct memory access for image data transfer (zero-copy where possible)
+- Direct memory access for image data transfer via render targets
 - Async rendering pipeline for maximum throughput
 
 Alternative approaches considered:
