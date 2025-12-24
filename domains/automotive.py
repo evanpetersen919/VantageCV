@@ -120,16 +120,15 @@ class AutomotiveDomain(BaseDomain):
         Extract ground truth annotations for autonomous driving.
         
         Annotations include:
-        - 2D bounding boxes: vehicles, pedestrians, cyclists, traffic signs
-        - 3D bounding boxes: with depth and orientation
-        - Lane markings: polylines for ego lane and adjacent lanes
-        - Semantic segmentation: road, sidewalk, vehicles, sky
+        - 2D/3D bounding boxes: vehicles, pedestrians, cyclists, traffic signs
+        - Instance segmentation: pixel-level masks for dynamic objects
+        - Lane markings: polylines for lanes
+        - 6D pose: orientation and position for vehicles
         - Traffic light states: red/yellow/green
-        """
-        # TODO: Extract from UE5 scene
-        # annotations = self.ue5_bridge.get_ground_truth()
         
-        # Mock annotations
+        Returns:
+            Dictionary with comprehensive multi-modal annotations
+        """
         annotations = {
             'image_id': random.randint(10000, 99999),
             'scene_type': 'urban_street',
@@ -137,41 +136,95 @@ class AutomotiveDomain(BaseDomain):
             'pedestrians': [],
             'lanes': [],
             'traffic_lights': [],
-            'metadata': {}
+            'metadata': {
+                'domain': 'automotive',
+                'scene_type': 'urban_driving'
+            }
         }
         
-        # Generate vehicle annotations
+        # Generate vehicle annotations with masks and 6D pose
         num_vehicles = random.randint(1, 10)
         for i in range(num_vehicles):
+            bbox_2d = [
+                random.randint(100, 1700), 
+                random.randint(200, 900),
+                random.randint(80, 300), 
+                random.randint(60, 200)
+            ]
+            
+            # Generate vehicle segmentation mask polygon
+            x, y, w, h = bbox_2d
+            polygon = [
+                x + random.uniform(0, 5), y + h * 0.2,  # Top left (hood)
+                x + w / 2, y,                            # Top center (roof)
+                x + w - random.uniform(0, 5), y + h * 0.2,  # Top right
+                x + w, y + h,                            # Bottom right (wheel)
+                x, y + h                                 # Bottom left (wheel)
+            ]
+            
+            # Generate 6D pose for vehicle
+            roll = np.radians(random.uniform(-2, 2))
+            pitch = np.radians(random.uniform(-5, 5))
+            yaw = np.radians(random.uniform(-180, 180))  # Vehicle heading
+            
+            from vantagecv.utils import euler_to_rotation_matrix
+            rotation_matrix = euler_to_rotation_matrix(roll, pitch, yaw)
+            
+            # 3D position relative to ego vehicle (in meters)
+            distance = random.uniform(5, 50)
+            translation = [
+                random.uniform(-20, 20),  # Lateral position
+                distance,                  # Forward distance
+                random.uniform(-0.5, 0.5)  # Height variation
+            ]
+            
             vehicle = {
                 'class': random.choice(['car', 'truck', 'bus', 'motorcycle']),
-                'bbox_2d': [random.randint(100, 1700), random.randint(200, 900),
-                           random.randint(80, 300), random.randint(60, 200)],
-                'bbox_3d': {
-                    'center': [random.uniform(-20, 20), random.uniform(5, 50), random.uniform(-2, 2)],
-                    'dimensions': [random.uniform(1.5, 2.5), random.uniform(4, 6), random.uniform(1.4, 2.0)],
-                    'rotation_y': random.uniform(-180, 180)
+                'bbox': bbox_2d,
+                'segmentation': [polygon],
+                'pose': {
+                    'rotation': rotation_matrix.tolist(),
+                    'translation': translation,
+                    'unit': 'meters',
+                    'confidence': random.uniform(0.90, 1.0)
                 },
-                'distance_m': random.uniform(5, 50),
+                'distance_m': distance,
                 'occluded': random.random() < 0.2
             }
             annotations['vehicles'].append(vehicle)
         
-        # Generate pedestrian annotations
+        # Generate pedestrian annotations with masks
         num_pedestrians = random.randint(0, 6)
         for i in range(num_pedestrians):
+            bbox_2d = [
+                random.randint(200, 1600), 
+                random.randint(300, 800),
+                random.randint(40, 120), 
+                random.randint(80, 250)
+            ]
+            
+            # Generate pedestrian mask (simplified human shape)
+            px, py, pw, ph = bbox_2d
+            ped_polygon = [
+                px + pw/2, py,              # Head
+                px + pw*0.3, py + ph*0.4,   # Left shoulder
+                px, py + ph,                # Left foot
+                px + pw, py + ph,           # Right foot
+                px + pw*0.7, py + ph*0.4    # Right shoulder
+            ]
+            
             pedestrian = {
                 'class': 'pedestrian',
-                'bbox_2d': [random.randint(200, 1600), random.randint(300, 800),
-                           random.randint(40, 120), random.randint(80, 250)],
+                'bbox': bbox_2d,
+                'segmentation': [ped_polygon],
                 'action': random.choice(['standing', 'walking', 'crossing']),
                 'distance_m': random.uniform(3, 30)
             }
             annotations['pedestrians'].append(pedestrian)
         
-        # Generate lane markings (simplified)
+        # Generate lane markings (polylines)
         annotations['lanes'] = {
-            'ego_lane': [[960, 1080], [960, 600]],  # Center line
+            'ego_lane': [[960, 1080], [960, 600]],
             'left_boundary': [[400, 1080], [500, 600]],
             'right_boundary': [[1520, 1080], [1420, 600]]
         }

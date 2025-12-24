@@ -8,9 +8,13 @@
 #==============================================================================
 
 import json
+import logging
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
+import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class AnnotationExporter:
@@ -18,8 +22,13 @@ class AnnotationExporter:
     Exports annotations to standard computer vision formats.
     
     Supports:
-    - COCO JSON (for object detection, instance segmentation)
-    - YOLO TXT (for object detection)
+    - COCO JSON (object detection, instance segmentation, keypoints, 6D pose)
+    - YOLO TXT (object detection only)
+    
+    Handles multi-modal annotations:
+    - Bounding boxes (detection)
+    - Segmentation masks (instance segmentation)
+    - 6D poses (rotation + translation for objects)
     """
     
     def __init__(self, class_names: List[str]):
@@ -101,9 +110,23 @@ class AnnotationExporter:
                     "iscrowd": 0
                 }
                 
-                # Add segmentation if available
-                if component.get('segmentation'):
+                # Add segmentation mask if available (polygon or RLE format)
+                if 'segmentation' in component:
                     annotation["segmentation"] = component['segmentation']
+                
+                # Add 6D pose if available (rotation matrix + translation)
+                if 'pose' in component:
+                    pose = component['pose']
+                    annotation["pose"] = {
+                        "rotation": pose['rotation'],  # 3x3 matrix as nested list
+                        "translation": pose['translation'],  # [x, y, z]
+                        "unit": pose.get('unit', 'meters')
+                    }
+                
+                # Add keypoints if available
+                if 'keypoints' in component:
+                    annotation["keypoints"] = component['keypoints']
+                    annotation["num_keypoints"] = len(component['keypoints']) // 3
                 
                 coco_data["annotations"].append(annotation)
                 annotation_id += 1
@@ -132,7 +155,61 @@ class AnnotationExporter:
         with open(output_path, 'w') as f:
             json.dump(coco_data, f, indent=2)
         
-        print(f"✓ Exported COCO annotations: {len(coco_data['annotations'])} objects in {len(coco_data['images'])} images")
+        logger.info(f"Exported COCO: {len(coco_data['annotations'])} annotations in {len(coco_data['images'])} images")
+    
+    def export_poses(self, annotations_list: List[Dict[str, Any]], output_path: Path) -> None:
+        """
+        Export 6D pose annotations to dedicated JSON file.
+        
+        Format compatible with BOP (Benchmark for 6D Object Pose Estimation) and
+        other pose estimation frameworks.
+        
+        Args:
+            annotations_list: List of annotation dicts with pose data
+            output_path: Path to save pose JSON file
+        """
+        pose_data = {
+            "info": {
+                "description": "VantageCV 6D Pose Annotations",
+                "version": "1.0",
+                "date_created": datetime.now().isoformat(),
+                "unit": "meters",
+                "coordinate_system": "camera"
+            },
+            "images": []
+        }
+        
+        for image_id, ann_data in enumerate(annotations_list):
+            image_poses = {
+                "image_id": image_id,
+                "file_name": ann_data['image_filename'],
+                "objects": []
+            }
+            
+            components = ann_data.get('components', [])
+            for component in components:
+                if 'pose' not in component:
+                    continue
+                
+                pose = component['pose']
+                obj_pose = {
+                    "class": component['class'],
+                    "rotation": pose['rotation'],
+                    "translation": pose['translation'],
+                    "confidence": pose.get('confidence', 1.0)
+                }
+                
+                image_poses["objects"].append(obj_pose)
+            
+            if image_poses["objects"]:
+                pose_data["images"].append(image_poses)
+        
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w') as f:
+            json.dump(pose_data, f, indent=2)
+        
+        total_poses = sum(len(img["objects"]) for img in pose_data["images"])
+        logger.info(f"Exported poses: {total_poses} object poses in {len(pose_data['images'])} images")
     
     def export_yolo(self, annotations_list: List[Dict[str, Any]], output_dir: Path,
                     image_size: tuple = (1920, 1080)) -> None:
@@ -203,5 +280,5 @@ class AnnotationExporter:
         with open(classes_path, 'w') as f:
             f.write('\n'.join(self.class_names + ['defect']))
         
-        print(f"✓ Exported YOLO annotations: {total_objects} objects in {len(annotations_list)} images")
+        logger.info(f"Exported YOLO: {total_objects} objects in {len(annotations_list)} images")
 

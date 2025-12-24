@@ -235,22 +235,93 @@ class SyntheticDataGenerator:
             raise IOError(f"Failed to save image to {output_path}: {str(e)}") from e
     
     def _export_annotations(self, output_path: Path, annotations_dir: Path) -> None:
-        """Export annotations to COCO and YOLO formats."""
+        """
+        Export annotations to COCO and YOLO formats.
+        
+        Converts domain-specific annotation format to standardized formats:
+        - COCO JSON: detection, segmentation, and 6D pose
+        - YOLO TXT: detection only
+        - Poses JSON: dedicated 6D pose file
+        """
         # Load all annotation JSONs
         annotation_files = sorted(annotations_dir.glob("*.json"))
         annotations_list = []
         
         for ann_file in annotation_files:
             with open(ann_file, 'r') as f:
-                annotations_list.append(json.load(f))
+                ann_data = json.load(f)
+                
+                # Convert domain-specific format to unified COCO-compatible format
+                unified_ann = self._convert_to_coco_format(ann_data)
+                annotations_list.append(unified_ann)
         
         # Get image size from config
         resolution = self.config.get('camera.resolution', [1920, 1080])
         image_size = tuple(resolution) if isinstance(resolution, list) else (1920, 1080)
         
         # Export to different formats
-        self.annotator.export_coco(annotations_list, output_path / 'annotations_coco.json', image_size)
-        self.annotator.export_yolo(annotations_list, output_path / 'annotations_yolo', image_size)
+        self.annotator.export_coco(
+            annotations_list, 
+            output_path / 'annotations_coco.json', 
+            image_size
+        )
+        self.annotator.export_yolo(
+            annotations_list, 
+            output_path / 'annotations_yolo', 
+            image_size
+        )
+        self.annotator.export_poses(
+            annotations_list,
+            output_path / 'annotations_poses.json'
+        )
+        
+    def _convert_to_coco_format(self, domain_annotations: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Convert domain-specific annotation format to unified COCO-compatible format.
+        
+        Handles different domain formats (industrial, automotive) and normalizes
+        them to a consistent structure.
+        
+        Args:
+            domain_annotations: Raw annotations from domain.get_annotations()
+            
+        Returns:
+            Unified annotation dict compatible with COCO exporter
+        """
+        unified = {
+            'image_filename': domain_annotations.get('image_filename', ''),
+            'timestamp': domain_annotations.get('timestamp', ''),
+            'components': [],
+            'defects': []
+        }
+        
+        # Industrial domain: has 'components' and 'defects' directly
+        if 'components' in domain_annotations:
+            unified['components'] = domain_annotations['components']
+            unified['defects'] = domain_annotations.get('defects', [])
+        
+        # Automotive domain: has 'vehicles' and 'pedestrians'
+        elif 'vehicles' in domain_annotations:
+            # Convert vehicles to components
+            for vehicle in domain_annotations.get('vehicles', []):
+                component = {
+                    'class': vehicle['class'],
+                    'bbox': vehicle['bbox'],
+                    'segmentation': vehicle.get('segmentation', []),
+                    'pose': vehicle.get('pose')
+                }
+                unified['components'].append(component)
+            
+            # Convert pedestrians to components
+            for pedestrian in domain_annotations.get('pedestrians', []):
+                component = {
+                    'class': pedestrian['class'],
+                    'bbox': pedestrian['bbox'],
+                    'segmentation': pedestrian.get('segmentation', [])
+                }
+                unified['components'].append(component)
+        
+        return unified
         
     def _save_metadata(self, output_path: Path) -> None:
         """Save generation metadata and configuration."""

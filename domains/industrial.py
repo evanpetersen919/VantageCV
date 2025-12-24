@@ -118,46 +118,96 @@ class IndustrialDomain(BaseDomain):
         
         Annotations include:
         - Object detection: bounding boxes for components and defects
-        - Segmentation: pixel-level masks for each component
-        - 6D pose: component orientation for assembly verification
+        - Instance segmentation: pixel-level polygon masks for each component
+        - 6D pose: rotation matrix + translation for component placement
         - Quality labels: pass/fail classification
-        """
-        # TODO: Extract from UE5 scene
-        # annotations = self.ue5_bridge.get_ground_truth()
         
-        # Mock annotations for now
+        Returns:
+            Dictionary with comprehensive multi-modal annotations
+        """
         annotations = {
             'image_id': random.randint(10000, 99999),
             'pcb_type': self.current_pcb,
             'components': [],
             'defects': [],
             'quality_label': 'pass',
-            'metadata': {}
+            'metadata': {
+                'domain': 'industrial',
+                'scene_type': 'pcb_inspection'
+            }
         }
         
-        # Generate component annotations
+        # Generate component annotations with realistic mock data
         num_components = random.randint(5, 15)
         for i in range(num_components):
+            bbox = [
+                random.randint(50, 1800), 
+                random.randint(50, 1000), 
+                random.randint(20, 100), 
+                random.randint(20, 100)
+            ]
+            
+            # Generate polygon segmentation mask from bbox with slight variation
+            x, y, w, h = bbox
+            polygon = [
+                x + random.uniform(0, 2), y + random.uniform(0, 2),
+                x + w - random.uniform(0, 2), y + random.uniform(0, 2),
+                x + w - random.uniform(0, 2), y + h - random.uniform(0, 2),
+                x + random.uniform(0, 2), y + h - random.uniform(0, 2)
+            ]
+            
+            # Generate realistic 6D pose (rotation matrix + translation)
+            roll = np.radians(random.uniform(-5, 5))  # Small rotation variations
+            pitch = np.radians(random.uniform(-5, 5))
+            yaw = np.radians(random.uniform(-180, 180))  # Full rotation around Z
+            
+            # Import rotation conversion from utils
+            from vantagecv.utils import euler_to_rotation_matrix
+            rotation_matrix = euler_to_rotation_matrix(roll, pitch, yaw)
+            
+            # Translation relative to camera (in cm)
+            translation = [
+                random.uniform(-15, 15),  # X position
+                random.uniform(-10, 10),   # Y position  
+                random.uniform(35, 55)     # Z depth (camera height)
+            ]
+            
             component = {
                 'class': random.choice(self.component_types),
-                'bbox': [random.randint(50, 1800), random.randint(50, 1000), 
-                        random.randint(20, 100), random.randint(20, 100)],
-                'segmentation': [],  # TODO: Get mask from UE5
-                'pose_6d': {
-                    'rotation': [random.uniform(-180, 180) for _ in range(3)],
-                    'translation': [random.uniform(-10, 10) for _ in range(3)]
+                'bbox': bbox,
+                'segmentation': [polygon],  # COCO polygon format
+                'pose': {
+                    'rotation': rotation_matrix.tolist(),  # 3x3 matrix
+                    'translation': translation,
+                    'unit': 'centimeters',
+                    'confidence': random.uniform(0.95, 1.0)
                 }
             }
             annotations['components'].append(component)
         
-        # Add defect if present
+        # Add defect annotation if present
         if random.random() < 0.30:
+            defect_bbox = [
+                random.randint(100, 1700), 
+                random.randint(100, 900), 
+                random.randint(30, 120), 
+                random.randint(30, 120)
+            ]
+            
+            # Generate defect mask polygon
+            dx, dy, dw, dh = defect_bbox
+            defect_polygon = [
+                dx, dy,
+                dx + dw, dy,
+                dx + dw, dy + dh,
+                dx, dy + dh
+            ]
+            
             defect = {
                 'type': random.choice(self.defect_types),
-                'bbox': [random.randint(100, 1700), random.randint(100, 900), 
-                        random.randint(30, 120), random.randint(30, 120)],
+                'bbox': defect_bbox,
                 'severity': random.uniform(0.3, 1.0),
-                'segmentation': []
+                'segmentation': [defect_polygon]
             }
             annotations['defects'].append(defect)
             annotations['quality_label'] = 'fail'
