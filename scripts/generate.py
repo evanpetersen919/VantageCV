@@ -9,6 +9,7 @@
 
 import argparse
 import sys
+import importlib
 from pathlib import Path
 
 # Add parent directory to path for imports
@@ -17,8 +18,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from vantagecv.config import Config
 from vantagecv.generator import SyntheticDataGenerator
 from vantagecv.annotator import AnnotationExporter
-from domains.industrial import IndustrialDomain
-from domains.automotive import AutomotiveDomain
 
 
 def parse_args():
@@ -108,16 +107,12 @@ def main():
     else:
         output_dir = f"data/synthetic/{domain_name}"
     
-    # Initialize domain
+    # Initialize domain dynamically based on config
     print(f"Initializing {domain_name} domain...")
-    if domain_name == 'industrial':
-        domain = IndustrialDomain(config.data)
-    elif domain_name == 'automotive':
-        domain = AutomotiveDomain(config.data)
-    else:
-        print(f"Error: Unknown domain '{domain_name}'")
-        print("Supported domains: industrial, automotive")
-        return 1
+    domain_module = importlib.import_module(f'domains.{domain_name}')
+    domain_class_name = ''.join(word.capitalize() for word in domain_name.split('_')) + 'Domain'
+    domain_class = getattr(domain_module, domain_class_name)
+    domain = domain_class(config.data)
     
     # Initialize annotation exporter
     class_names = domain.get_object_list()
