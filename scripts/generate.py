@@ -65,6 +65,26 @@ Examples:
         help='Annotation export format (default: both)'
     )
     
+    parser.add_argument(
+        '--use-ue5',
+        action='store_true',
+        help='Use Unreal Engine 5 for rendering (requires UE5 running with Remote Control API)'
+    )
+    
+    parser.add_argument(
+        '--ue5-host',
+        type=str,
+        default='localhost',
+        help='UE5 Remote Control API hostname (default: localhost)'
+    )
+    
+    parser.add_argument(
+        '--ue5-port',
+        type=int,
+        default=30010,
+        help='UE5 Remote Control API port (default: 30010)'
+    )
+    
     return parser.parse_args()
 
 
@@ -107,8 +127,17 @@ def main():
     generator = SyntheticDataGenerator(
         domain=domain,
         config=config,
-        annotator=annotator
+        annotator=annotator,
+        use_ue5=args.use_ue5,
+        ue5_host=args.ue5_host,
+        ue5_port=args.ue5_port
     )
+    
+    # Show rendering mode
+    if args.use_ue5:
+        print(f"Rendering mode: Unreal Engine 5 ({args.ue5_host}:{args.ue5_port})")
+    else:
+        print("Rendering mode: Mock data (for development)")
     
     # Generate dataset
     try:

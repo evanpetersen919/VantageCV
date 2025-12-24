@@ -9,11 +9,14 @@
 
 import time
 import json
+import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
 import numpy as np
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 
 class SyntheticDataGenerator:
@@ -26,9 +29,12 @@ class SyntheticDataGenerator:
     3. Setup UE5 scene
     4. Generate loop: randomize → validate → capture → annotate
     5. Export annotations in multiple formats
+    
+    Supports both UE5 rendering and mock data generation for development.
     """
     
-    def __init__(self, domain, config, annotator):
+    def __init__(self, domain, config, annotator, use_ue5: bool = False, 
+                 ue5_host: str = "localhost", ue5_port: int = 30010):
         """
         Initialize generator with domain and config.
         
@@ -36,15 +42,33 @@ class SyntheticDataGenerator:
             domain: Domain instance (IndustrialDomain, AutomotiveDomain, etc.)
             config: Config object with settings
             annotator: Annotator instance for export
+            use_ue5: If True, connect to UE5; if False, use mock data
+            ue5_host: UE5 Remote Control API hostname
+            ue5_port: UE5 Remote Control API port
         """
         self.domain = domain
         self.config = config
         self.annotator = annotator
+        self.use_ue5 = use_ue5
+        self.ue5_bridge = None
+        
+        # Connect to UE5 if requested
+        if use_ue5:
+            try:
+                from .ue5_bridge import UE5Bridge
+                self.ue5_bridge = UE5Bridge(host=ue5_host, port=ue5_port)
+                logger.info("Connected to UE5 rendering engine")
+            except Exception as e:
+                logger.warning(f"Failed to connect to UE5: {e}. Falling back to mock data.")
+                self.use_ue5 = False
+                self.ue5_bridge = None
+        
         self.stats = {
             'generated': 0,
             'rejected': 0,
             'start_time': None,
-            'end_time': None
+            'end_time': None,
+            'mode': 'ue5' if self.use_ue5 else 'mock'
         }
         
     def generate_dataset(self, num_images: int, output_dir: str) -> Dict[str, Any]:
@@ -162,10 +186,10 @@ class SyntheticDataGenerator:
     
     def _capture_image(self, output_path: Path) -> None:
         """
-        Capture image from UE5 rendering engine.
+        Capture image from UE5 rendering engine or generate mock data.
         
-        Currently generates placeholder images for development and testing.
-        Will be replaced with actual UE5 C++ plugin communication.
+        If connected to UE5, uses the Remote Control API to capture rendered frame.
+        Otherwise, generates placeholder images for development and testing.
         
         Args:
             output_path: Filesystem path where the captured image will be saved
@@ -173,10 +197,17 @@ class SyntheticDataGenerator:
         Raises:
             ValueError: If resolution configuration is invalid
             IOError: If image cannot be saved to output_path
-        
-        TODO: Implement UE5 bridge: self.ue5_bridge.capture_frame(str(output_path))
+            RuntimeError: If UE5 capture fails
         """
-        # Parse resolution from config (supports both list and dict formats)
+        if self.use_ue5 and self.ue5_bridge:
+            # Use actual UE5 rendering
+            try:
+                self.ue5_bridge.capture_frame(str(output_path))
+                return
+            except Exception as e:
+                raise RuntimeError(f"UE5 frame capture failed: {str(e)}") from e
+        
+        # Mock data generation (for development without UE5)
         resolution = self.config.get('camera.resolution', [1920, 1080])
         
         if isinstance(resolution, dict):
