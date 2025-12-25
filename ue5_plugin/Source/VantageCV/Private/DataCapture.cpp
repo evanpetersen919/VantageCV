@@ -82,10 +82,39 @@ void ADataCapture::SetResolution(int32 Width, int32 Height)
 
 bool ADataCapture::CaptureFrame(const FString& OutputPath, int32 Width, int32 Height)
 {
+	// Initialize components if not already done (for Editor mode)
 	if (!CaptureComponent || !RenderTarget)
 	{
-		UE_LOG(LogDataCapture, Error, TEXT("CaptureComponent or RenderTarget not initialized"));
-		return false;
+		UE_LOG(LogDataCapture, Log, TEXT("Initializing components for Editor mode capture"));
+		
+		if (!CaptureComponent)
+		{
+			CaptureComponent = NewObject<USceneCaptureComponent2D>(this, TEXT("DataCaptureComponent"));
+			CaptureComponent->RegisterComponent();
+			CaptureComponent->bCaptureEveryFrame = false;
+			CaptureComponent->bCaptureOnMovement = false;
+			CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+			
+			// Attach to root
+			if (GetRootComponent())
+			{
+				CaptureComponent->AttachToComponent(GetRootComponent(), FAttachmentTransformRules::SnapToTargetIncludingScale);
+			}
+		}
+		
+		if (!RenderTarget)
+		{
+			RenderTarget = NewObject<UTextureRenderTarget2D>();
+			RenderTarget->InitAutoFormat(Width, Height);
+			RenderTarget->UpdateResourceImmediate(true);
+			
+			if (CaptureComponent)
+			{
+				CaptureComponent->TextureTarget = RenderTarget;
+			}
+		}
+		
+		UE_LOG(LogDataCapture, Log, TEXT("Components initialized successfully"));
 	}
 
 	// Update resolution if needed

@@ -11,10 +11,37 @@
 #include "VantageCVModule.h"
 #include "IRemoteControlModule.h"
 #include "RemoteControlPreset.h"
+#include "DataCapture.h"
+#include "EngineUtils.h"
+#include "Engine/World.h"
 
 #define LOCTEXT_NAMESPACE "FVantageCVModule"
 
 DEFINE_LOG_CATEGORY_STATIC(LogVantageCV, Log, All);
+
+// Console command to trigger data capture
+static FAutoConsoleCommand CaptureFrameCommand(
+	TEXT("VantageCV.CaptureFrame"),
+	TEXT("Capture a frame using the DataCapture actor in the current level"),
+	FConsoleCommandDelegate::CreateStatic([]()
+	{
+		if (GEngine && GEngine->GetWorld())
+		{
+			UWorld* World = GEngine->GetWorld();
+			for (TActorIterator<ADataCapture> It(World); It; ++It)
+			{
+				ADataCapture* DataCapture = *It;
+				if (DataCapture)
+				{
+					UE_LOG(LogVantageCV, Log, TEXT("Executing CaptureFrame() on DataCapture actor"));
+					DataCapture->CaptureFrame();
+					return;
+				}
+			}
+			UE_LOG(LogVantageCV, Warning, TEXT("No DataCapture actor found in level"));
+		}
+	})
+);
 
 void FVantageCVModule::StartupModule()
 {
