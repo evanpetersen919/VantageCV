@@ -49,12 +49,16 @@ models/onnx/
 *.onnx
 
 # Test outputs and temporary files
-tests/
+tests/outputs/
+tests/temp/
 *_test/
 temp/
 tmp/
 *.tmp
-verify_setup.py
+
+# Keep test scripts but ignore outputs
+!tests/integration/
+!tests/**/*.py
 
 # Documentation - exclude completion reports (keep README only)
 PHASE1_COMPLETE.md
