@@ -41,6 +41,7 @@ mlartifacts/
 # Generated Data (exclude all generated datasets)
 data/
 !data/.gitkeep
+output/
 
 # Models (exclude all trained models and checkpoints)
 models/checkpoints/
