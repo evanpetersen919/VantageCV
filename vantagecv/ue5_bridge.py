@@ -33,7 +33,8 @@ class UE5Bridge:
         timeout: Request timeout in seconds
     """
     
-    def __init__(self, host: str = "localhost", port: int = 30010, timeout: int = 30):
+    def __init__(self, host: str = "localhost", port: int = 30010, timeout: int = 30,
+                 scene_controller_path: Optional[str] = None):
         """
         Initialize UE5 bridge connection.
         
@@ -41,6 +42,9 @@ class UE5Bridge:
             host: UE5 server hostname
             port: Remote Control API port
             timeout: Request timeout in seconds
+            scene_controller_path: Full object path to BP_SceneController instance.
+                If None, attempts to use common default patterns.
+                Example: "/Game/main.main:PersistentLevel.BP_SceneController_C_UAID_..."
             
         Raises:
             ConnectionError: If unable to connect to UE5
@@ -50,6 +54,9 @@ class UE5Bridge:
         self.timeout = timeout
         self.base_url = f"http://{host}:{port}/remote/object"
         self.batch_url = f"http://{host}:{port}/remote/batch"
+        
+        # Store SceneController path (can be configured per project)
+        self.scene_controller_path = scene_controller_path or "/Game/main.main:PersistentLevel.BP_SceneController_C_UAID_B48C9D9F0BCA05AF02_1237591175"
         
         self._verify_connection()
     
@@ -212,17 +219,17 @@ class UE5Bridge:
         Randomize scene lighting parameters.
         
         Args:
-            intensity_range: (min, max) light intensity
+            intensity_range: (min, max) light intensity in candela
             color_temp_range: (min, max) color temperature in Kelvin
         """
         self.call_function(
-            "/Game/VantageCV/SceneController",
+            self.scene_controller_path,
             "RandomizeLighting",
             {
-                "IntensityMin": intensity_range[0],
-                "IntensityMax": intensity_range[1],
-                "ColorTempMin": color_temp_range[0],
-                "ColorTempMax": color_temp_range[1]
+                "MinIntensity": intensity_range[0],
+                "MaxIntensity": intensity_range[1],
+                "MinTemperature": color_temp_range[0],
+                "MaxTemperature": color_temp_range[1]
             }
         )
         logger.debug(f"Randomized lighting: intensity={intensity_range}, temp={color_temp_range}")
@@ -235,9 +242,9 @@ class UE5Bridge:
             object_types: List of object type names to randomize
         """
         self.call_function(
-            "/Game/VantageCV/SceneController",
+            self.scene_controller_path,
             "RandomizeMaterials",
-            {"ObjectTypes": object_types}
+            {"TargetTags": object_types}
         )
         logger.debug(f"Randomized materials for: {object_types}")
     
@@ -250,11 +257,11 @@ class UE5Bridge:
             count: Number of objects to spawn
         """
         self.call_function(
-            "/Game/VantageCV/SceneController",
+            self.scene_controller_path,
             "SpawnRandomObjects",
             {
-                "ObjectClasses": object_classes,
-                "Count": count
+                "NumObjects": count,
+                "ObjectClasses": object_classes
             }
         )
         logger.debug(f"Spawned {count} objects from classes: {object_classes}")
@@ -312,7 +319,7 @@ class UE5Bridge:
     def reset_scene(self) -> None:
         """Reset scene to default state."""
         self.call_function(
-            "/Game/VantageCV/SceneController",
+            self.scene_controller_path,
             "ResetScene",
             {}
         )

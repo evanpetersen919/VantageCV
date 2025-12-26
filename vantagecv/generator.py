@@ -62,6 +62,10 @@ class SyntheticDataGenerator:
                 from .ue5_bridge import UE5Bridge
                 self.ue5_bridge = UE5Bridge(host=ue5_host, port=ue5_port)
                 logger.info("Connected to UE5 rendering engine")
+                
+                # Pass UE5 bridge to domain for scene randomization
+                if hasattr(domain, 'ue5_bridge'):
+                    domain.ue5_bridge = self.ue5_bridge
             except Exception as e:
                 logger.warning(f"Failed to connect to UE5: {e}. Falling back to mock data.")
                 self.use_ue5 = False

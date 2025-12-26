@@ -255,7 +255,18 @@ TArray<ALight*> ASceneController::GetSceneLights() const
 	UWorld* World = GetWorld();
 	if (!World) return Lights;
 
-	for (TActorIterator<ALight> It(World); It; ++It)
+	// Find all light types (Point, Spot, Directional)
+	for (TActorIterator<APointLight> It(World); It; ++It)
+	{
+		Lights.Add(*It);
+	}
+	
+	for (TActorIterator<ASpotLight> It(World); It; ++It)
+	{
+		Lights.Add(*It);
+	}
+	
+	for (TActorIterator<ADirectionalLight> It(World); It; ++It)
 	{
 		Lights.Add(*It);
 	}

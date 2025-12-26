@@ -33,13 +33,14 @@ class IndustrialDomain(BaseDomain):
     - Component placement validation
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], ue5_bridge=None):
         """Initialize industrial domain with PCB-specific parameters."""
         super().__init__(config)
         self.defect_types = ['scratch', 'crack', 'discoloration', 'missing_component', 
                             'solder_bridge', 'lifted_pad']
         self.component_types = self.get_object_list()
         self.current_pcb = None
+        self.ue5_bridge = ue5_bridge
         
     def setup_scene(self) -> bool:
         """
@@ -84,6 +85,17 @@ class IndustrialDomain(BaseDomain):
         Returns:
             Complete randomization parameter dictionary
         """
+        # Apply UE5 lighting randomization if bridge is available
+        if self.ue5_bridge:
+            lighting_config = self.config.get('industrial.lighting', {})
+            intensity_range = lighting_config.get('intensity_range', [300, 800])
+            color_temp_range = lighting_config.get('color_temp_range', [4000, 6500])
+            
+            self.ue5_bridge.randomize_lighting(
+                intensity_range=tuple(intensity_range),
+                color_temp_range=tuple(color_temp_range)
+            )
+        
         # Use randomization utilities for consistent, realistic parameters
         lighting_params = LightingRandomizer.randomize_industrial_lighting()
         material_params = MaterialRandomizer.randomize_pcb_materials()
