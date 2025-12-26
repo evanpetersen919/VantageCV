@@ -123,37 +123,42 @@ class UE5Bridge:
     
     def capture_frame(self, output_path: str = None) -> bool:
         """
-        Capture a frame using the VantageCVSubsystem.
+        Capture a frame using console command.
+        Research-level approach: Direct Remote Control API, no plugin needed.
         
         Args:
-            output_path: Path where to save the image (currently unused, subsystem uses fixed path)
+            output_path: (Unused) Screenshots save to ProjectDir/Saved/Screenshots/WindowsEditor/
             
         Returns:
-            True if capture succeeded, False otherwise
-            
-        Raises:
-            RuntimeError: If capture fails
+            True if capture command was sent successfully
         """
-        result = self.call_function(
-            object_path="/Script/VantageCV.Default__VantageCVSubsystem",
-            function_name="CaptureFrame",
-            parameters={}
-        )
-        
-        return result.get('ReturnValue', False)
-        
+        # Use HighResShot console command for screenshot capture
+        # This works without any custom plugin/subsystem
         try:
+            # Execute console command via Remote Control
             response = requests.put(
-                f"{self.base_url}/call",
-                json=payload,
+                f"{self.base_url}/object/call",
+                json={
+                    "objectPath": "/Script/Engine.Default__KismetSystemLibrary",
+                    "functionName": "ExecuteConsoleCommand",
+                    "parameters": {
+                        "WorldContextObject": None,
+                        "Command": "HighResShot 1"
+                    },
+                    "generateTransaction": False
+                },
                 timeout=self.timeout
             )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            raise RuntimeError(
-                f"Failed to call {function_name} on {object_path}: {e}"
-            )
+            
+            if response.status_code == 200:
+                logger.debug("Screenshot captured via HighResShot console command")
+                return True
+            else:
+                logger.warning(f"Screenshot command returned status {response.status_code}")
+                return False
+        except Exception as e:
+            logger.error(f"Screenshot command failed: {e}")
+            return False
     
     def set_property(self, object_path: str, property_name: str, 
                      value: Any) -> None:
@@ -216,7 +221,8 @@ class UE5Bridge:
     def randomize_lighting(self, intensity_range: tuple, 
                           color_temp_range: tuple) -> None:
         """
-        Randomize scene lighting parameters.
+        Randomize scene lighting via C++ SceneController.
+        Hybrid approach: Python orchestration → C++ execution for performance.
         
         Args:
             intensity_range: (min, max) light intensity in candela
@@ -234,19 +240,22 @@ class UE5Bridge:
         )
         logger.debug(f"Randomized lighting: intensity={intensity_range}, temp={color_temp_range}")
     
-    def randomize_materials(self, object_types: List[str]) -> None:
+    def randomize_materials(self, object_types: List[str] = None) -> None:
         """
-        Randomize materials on specified object types.
+        Randomize materials via C++ SceneController.
+        Hybrid approach: Python orchestration → C++ execution for performance.
         
         Args:
-            object_types: List of object type names to randomize
+            object_types: List of actor name patterns to target for material randomization
         """
+        if object_types is None:
+            object_types = []
+        
         self.call_function(
             self.scene_controller_path,
             "RandomizeMaterials",
             {"TargetTags": object_types}
         )
-        logger.debug(f"Randomized materials for: {object_types}")
     
     def spawn_objects(self, object_classes: List[str], count: int) -> None:
         """
@@ -266,31 +275,25 @@ class UE5Bridge:
         )
         logger.debug(f"Spawned {count} objects from classes: {object_classes}")
     
-    def capture_frame(self, output_path: str) -> bool:
+    def capture_frame(self, output_path: str = None) -> bool:
         """
-        Capture current frame to disk via VantageCVSubsystem.
+        Capture current frame via C++ VantageCVSubsystem.
+        Hybrid approach: Python orchestration → C++ execution for performance.
         
         Args:
-            output_path: Filesystem path to save captured image
+            output_path: (Optional) Path for captured image
             
         Returns:
             True if capture succeeded
-            
-        Raises:
-            RuntimeError: If capture fails
         """
-        # Call VantageCVSubsystem which triggers DataCapture actor
         result = self.call_function(
             "/Script/VantageCV.Default__VantageCVSubsystem",
             "CaptureFrame"
         )
         
         success = result.get("ReturnValue", False)
-        if not success:
-            raise RuntimeError(f"Frame capture failed")
-        
-        logger.debug(f"Triggered frame capture via subsystem")
-        return True
+        logger.debug(f"Triggered frame capture via C++ subsystem: {success}")
+        return success
     
     def generate_annotations(self) -> Dict[str, Any]:
         """

@@ -48,6 +48,12 @@ industrial:
     - "double_layer"
     - "multi_layer"
   
+  # UE5 scene configuration
+  ue5:
+    remote_control_port: 30010
+    scene_controller_path: "/Game/main.main:PersistentLevel.BP_SceneController_C_UAID_B48C9D9F0BCA05AF02_1237591175"
+    target_actor_pattern: "StaticMeshActor"  # Name pattern for PCB mesh actors
+  
   lighting:
     type: "led_industrial"
     intensity_range: [300, 800]  # Candela (cd)
@@ -55,10 +61,8 @@ industrial:
     num_sources_range: [2, 4]  # Multi-directional lighting
   
   randomization:
-    # Material randomization
-    pcb_finishes: ["matte_green", "glossy_green", "blue", "black"]
-    solder_metallic_range: [0.7, 0.95]
-    copper_oxidation_range: [0.0, 0.2]
+    # Material randomization via C++ SceneController
+    # Targets actors with "PCB" tag in the level
     
     # Pose randomization
     rotation_range: [0, 360]  # Full 360° rotation

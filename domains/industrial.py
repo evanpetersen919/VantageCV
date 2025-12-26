@@ -95,6 +95,11 @@ class IndustrialDomain(BaseDomain):
                 intensity_range=tuple(intensity_range),
                 color_temp_range=tuple(color_temp_range)
             )
+            
+            # Apply material randomization via C++ SceneController
+            # Use actor pattern from config
+            actor_pattern = self.config.get('industrial.ue5.target_actor_pattern', 'StaticMeshActor')
+            self.ue5_bridge.randomize_materials(object_types=[actor_pattern])
         
         # Use randomization utilities for consistent, realistic parameters
         lighting_params = LightingRandomizer.randomize_industrial_lighting()
