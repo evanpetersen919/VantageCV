@@ -10,6 +10,7 @@
 import time
 import json
 import logging
+import requests
 from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -34,7 +35,8 @@ class SyntheticDataGenerator:
     """
     
     def __init__(self, domain, config, annotator, use_ue5: bool = False, 
-                 ue5_host: str = "localhost", ue5_port: int = 30010):
+                 ue5_host: str = "localhost", ue5_port: int = 30010,
+                 ue5_screenshot_path: Optional[str] = None):
         """
         Initialize generator with domain and config.
         
@@ -45,12 +47,14 @@ class SyntheticDataGenerator:
             use_ue5: If True, connect to UE5; if False, use mock data
             ue5_host: UE5 Remote Control API hostname
             ue5_port: UE5 Remote Control API port
+            ue5_screenshot_path: Path where UE5 saves screenshots (default: auto-detect from UE5 project)
         """
         self.domain = domain
         self.config = config
         self.annotator = annotator
         self.use_ue5 = use_ue5
         self.ue5_bridge = None
+        self.ue5_screenshot_path = Path(ue5_screenshot_path) if ue5_screenshot_path else None
         
         # Connect to UE5 if requested
         if use_ue5:
@@ -97,6 +101,15 @@ class SyntheticDataGenerator:
         images_dir.mkdir(parents=True, exist_ok=True)
         annotations_dir.mkdir(parents=True, exist_ok=True)
         
+        # Check for existing images and start from next index (append mode)
+        existing_images = sorted(images_dir.glob('image_*.png'))
+        start_index = 0
+        if existing_images:
+            # Extract highest index from existing files
+            last_file = existing_images[-1].stem  # e.g., "image_000004"
+            start_index = int(last_file.split('_')[-1]) + 1
+            logger.info(f"Found {len(existing_images)} existing images, starting from index {start_index}")
+        
         print(f"\n{'='*60}")
         print(f"VantageCV Synthetic Data Generation")
         print(f"{'='*60}")
@@ -112,12 +125,13 @@ class SyntheticDataGenerator:
         print("Scene setup complete\n")
         
         self.stats['start_time'] = datetime.now()
-        generated_count = 0
+        generated_count = start_index
         attempts = 0
+        target_count = start_index + num_images
         max_attempts = num_images * 3  # Allow up to 3x attempts for rejections
         
         print("[2/4] Generating images...")
-        while generated_count < num_images and attempts < max_attempts:
+        while generated_count < target_count and attempts < max_attempts:
             attempts += 1
             
             # Randomize scene
@@ -145,14 +159,15 @@ class SyntheticDataGenerator:
                 json.dump(annotations, f, indent=2)
             
             generated_count += 1
-            self.stats['generated'] = generated_count
+            self.stats['generated'] = generated_count - start_index
             
             # Progress update
-            if generated_count % 10 == 0 or generated_count == num_images:
+            if (generated_count - start_index) % 10 == 0 or generated_count == target_count:
                 elapsed = (datetime.now() - self.stats['start_time']).total_seconds()
-                rate = generated_count / elapsed if elapsed > 0 else 0
-                eta = (num_images - generated_count) / rate if rate > 0 else 0
-                print(f"  Progress: {generated_count}/{num_images} | "
+                images_generated = generated_count - start_index
+                rate = images_generated / elapsed if elapsed > 0 else 0
+                eta = (target_count - generated_count) / rate if rate > 0 else 0
+                print(f"  Progress: {generated_count - start_index}/{num_images} | "
                       f"Rate: {rate:.1f} img/s | "
                       f"Rejected: {self.stats['rejected']} | "
                       f"ETA: {eta:.0f}s")
@@ -188,7 +203,7 @@ class SyntheticDataGenerator:
         """
         Capture image from UE5 rendering engine or generate mock data.
         
-        If connected to UE5, uses the Remote Control API to capture rendered frame.
+        If connected to UE5, uses the Remote Control API to call VantageCVSubsystem.
         Otherwise, generates placeholder images for development and testing.
         
         Args:
@@ -200,9 +215,37 @@ class SyntheticDataGenerator:
             RuntimeError: If UE5 capture fails
         """
         if self.use_ue5 and self.ue5_bridge:
-            # Use actual UE5 rendering
+            # Use actual UE5 rendering via VantageCVSubsystem
             try:
-                self.ue5_bridge.capture_frame(str(output_path))
+                success = self.ue5_bridge.capture_frame(str(output_path))
+                if not success:
+                    raise RuntimeError("VantageCVSubsystem.CaptureFrame() returned false")
+                
+                # UE5 saves to its own Screenshots directory, copy to our output location
+                import shutil
+                
+                # Auto-detect screenshot path if not configured
+                if self.ue5_screenshot_path is None:
+                    # Default UE5 screenshot location
+                    ue5_capture_path = Path.home() / "Documents" / "Unreal Projects" / "VantageCV_Project" / "Saved" / "Screenshots" / "test_capture.png"
+                    # Also try alternate common locations
+                    if not ue5_capture_path.exists():
+                        for candidate in [
+                            Path("F:/Unreal Editor/VantageCV_Project/Saved/Screenshots/test_capture.png"),
+                            Path.home() / "AppData" / "Local" / "UnrealEngine" / "VantageCV_Project" / "Saved" / "Screenshots" / "test_capture.png"
+                        ]:
+                            if candidate.exists():
+                                ue5_capture_path = candidate
+                                self.ue5_screenshot_path = candidate
+                                break
+                else:
+                    ue5_capture_path = self.ue5_screenshot_path
+                
+                if ue5_capture_path.exists():
+                    shutil.copy2(ue5_capture_path, output_path)
+                else:
+                    raise RuntimeError(f"UE5 capture file not found at {ue5_capture_path}. Set ue5_screenshot_path in constructor.")
+                    
                 return
             except Exception as e:
                 raise RuntimeError(f"UE5 frame capture failed: {str(e)}") from e

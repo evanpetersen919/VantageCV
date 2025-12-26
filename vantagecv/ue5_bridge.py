@@ -61,14 +61,13 @@ class UE5Bridge:
             ConnectionError: If connection fails
         """
         try:
-            response = requests.get(
-                f"http://{self.host}:{self.port}/remote",
+            # Test with a minimal PUT request to verify server is responding
+            response = requests.put(
+                f"http://{self.host}:{self.port}/remote/object/call",
+                json={"objectPath": "", "functionName": ""},
                 timeout=5
             )
-            if response.status_code != 200:
-                raise ConnectionError(
-                    f"UE5 Remote Control API returned status {response.status_code}"
-                )
+            # Any response (even error) means server is alive
             logger.info(f"Connected to UE5 at {self.host}:{self.port}")
         except requests.exceptions.RequestException as e:
             raise ConnectionError(
@@ -82,7 +81,7 @@ class UE5Bridge:
         Call a function on a UE5 object via Remote Control API.
         
         Args:
-            object_path: Path to UE5 object (e.g., "/Game/SceneController")
+            object_path: Path to UE5 object (e.g., "/Script/VantageCV.Default__VantageCVSubsystem")
             function_name: Name of the function to call
             parameters: Function parameters as dictionary
             
@@ -92,12 +91,49 @@ class UE5Bridge:
         Raises:
             RuntimeError: If function call fails
         """
+        url = f"{self.base_url}/call"
         payload = {
             "objectPath": object_path,
             "functionName": function_name,
             "parameters": parameters or {},
-            "generateTransaction": True
+            "generateTransaction": False
         }
+        
+        try:
+            response = requests.put(url, json=payload, timeout=self.timeout)
+            
+            if response.status_code != 200:
+                error_msg = response.json().get('errorMessage', 'Unknown error') if response.text else 'No response'
+                raise RuntimeError(
+                    f"UE5 function call failed: {function_name} on {object_path}. "
+                    f"Status: {response.status_code}, Error: {error_msg}"
+                )
+            
+            return response.json()
+            
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"Network error calling {function_name}: {e}") from e
+    
+    def capture_frame(self, output_path: str = None) -> bool:
+        """
+        Capture a frame using the VantageCVSubsystem.
+        
+        Args:
+            output_path: Path where to save the image (currently unused, subsystem uses fixed path)
+            
+        Returns:
+            True if capture succeeded, False otherwise
+            
+        Raises:
+            RuntimeError: If capture fails
+        """
+        result = self.call_function(
+            object_path="/Script/VantageCV.Default__VantageCVSubsystem",
+            function_name="CaptureFrame",
+            parameters={}
+        )
+        
+        return result.get('ReturnValue', False)
         
         try:
             response = requests.put(
@@ -225,7 +261,7 @@ class UE5Bridge:
     
     def capture_frame(self, output_path: str) -> bool:
         """
-        Capture current frame to disk.
+        Capture current frame to disk via VantageCVSubsystem.
         
         Args:
             output_path: Filesystem path to save captured image
@@ -236,17 +272,17 @@ class UE5Bridge:
         Raises:
             RuntimeError: If capture fails
         """
+        # Call VantageCVSubsystem which triggers DataCapture actor
         result = self.call_function(
-            "/Game/VantageCV/DataCapture",
-            "CaptureFrame",
-            {"OutputPath": str(output_path)}
+            "/Script/VantageCV.Default__VantageCVSubsystem",
+            "CaptureFrame"
         )
         
         success = result.get("ReturnValue", False)
         if not success:
-            raise RuntimeError(f"Frame capture failed for {output_path}")
+            raise RuntimeError(f"Frame capture failed")
         
-        logger.debug(f"Captured frame to: {output_path}")
+        logger.debug(f"Triggered frame capture via subsystem")
         return True
     
     def generate_annotations(self) -> Dict[str, Any]:
