@@ -12,6 +12,7 @@
 #include "Engine/DirectionalLight.h"
 #include "Engine/PointLight.h"
 #include "Engine/SpotLight.h"
+#include "Engine/StaticMeshActor.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/SpotLightComponent.h"
@@ -95,7 +96,29 @@ void ASceneController::RandomizeLighting(float MinIntensity, float MaxIntensity,
 
 void ASceneController::RandomizeMaterials(const TArray<FString>& TargetTags)
 {
-	TArray<AActor*> TargetActors = GetActorsByTags(TargetTags);
+	// Search by actor NAME instead of tags (more reliable with World Partition)
+	TArray<AActor*> TargetActors;
+	UWorld* World = GetWorld();
+	
+	if (World)
+	{
+		for (TActorIterator<AStaticMeshActor> It(World); It; ++It)
+		{
+			AStaticMeshActor* Actor = *It;
+			FString ActorName = Actor->GetName();
+			
+			// Check if actor name contains any of the search patterns
+			for (const FString& Pattern : TargetTags)
+			{
+				if (ActorName.Contains(Pattern))
+				{
+					TargetActors.Add(Actor);
+					break;
+				}
+			}
+		}
+	}
+	
 	int32 ModifiedCount = 0;
 
 	for (AActor* Actor : TargetActors)

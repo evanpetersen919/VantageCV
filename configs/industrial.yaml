@@ -52,7 +52,10 @@ industrial:
   ue5:
     remote_control_port: 30010
     scene_controller_path: "/Game/main.main:PersistentLevel.BP_SceneController_C_UAID_B48C9D9F0BCA05AF02_1237591175"
+    data_capture_path: "/Game/main.main:PersistentLevel.DataCapture_UAID_B48C9D9F0BCAFBAE02_1291816417"
     target_actor_pattern: "StaticMeshActor"  # Name pattern for PCB mesh actors
+    output_directory: "F:/Unreal Editor/VantageCV_Project/Saved/Screenshots/VantageCV"
+    default_resolution: [1920, 1080]
   
   lighting:
     type: "led_industrial"

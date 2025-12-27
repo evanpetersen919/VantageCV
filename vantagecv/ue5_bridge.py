@@ -34,7 +34,8 @@ class UE5Bridge:
     """
     
     def __init__(self, host: str = "localhost", port: int = 30010, timeout: int = 30,
-                 scene_controller_path: Optional[str] = None):
+                 scene_controller_path: Optional[str] = None,
+                 data_capture_path: Optional[str] = None):
         """
         Initialize UE5 bridge connection.
         
@@ -42,9 +43,8 @@ class UE5Bridge:
             host: UE5 server hostname
             port: Remote Control API port
             timeout: Request timeout in seconds
-            scene_controller_path: Full object path to BP_SceneController instance.
-                If None, attempts to use common default patterns.
-                Example: "/Game/main.main:PersistentLevel.BP_SceneController_C_UAID_..."
+            scene_controller_path: Full object path to BP_SceneController instance
+            data_capture_path: Full object path to BP_DataCapture instance
             
         Raises:
             ConnectionError: If unable to connect to UE5
@@ -55,8 +55,9 @@ class UE5Bridge:
         self.base_url = f"http://{host}:{port}/remote/object"
         self.batch_url = f"http://{host}:{port}/remote/batch"
         
-        # Store SceneController path (can be configured per project)
+        # Store actor paths (can be configured per project)
         self.scene_controller_path = scene_controller_path or "/Game/main.main:PersistentLevel.BP_SceneController_C_UAID_B48C9D9F0BCA05AF02_1237591175"
+        self.data_capture_path = data_capture_path or "/Game/main.main:PersistentLevel.BP_DataCapture_C_0"
         
         self._verify_connection()
     
@@ -121,43 +122,41 @@ class UE5Bridge:
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"Network error calling {function_name}: {e}") from e
     
-    def capture_frame(self, output_path: str = None) -> bool:
+    def capture_frame(self, output_path: str, width: int = 1920, height: int = 1080) -> bool:
         """
-        Capture a frame using console command.
-        Research-level approach: Direct Remote Control API, no plugin needed.
+        Capture a frame using DataCapture actor.
+        Professional approach: Custom C++ actor with full control.
         
         Args:
-            output_path: (Unused) Screenshots save to ProjectDir/Saved/Screenshots/WindowsEditor/
+            output_path: Full path where image should be saved (e.g., "F:/dataset/img_0001.png")
+            width: Image width in pixels
+            height: Image height in pixels
             
         Returns:
-            True if capture command was sent successfully
+            True if capture succeeded
         """
-        # Use HighResShot console command for screenshot capture
-        # This works without any custom plugin/subsystem
         try:
-            # Execute console command via Remote Control
-            response = requests.put(
-                f"{self.base_url}/object/call",
-                json={
-                    "objectPath": "/Script/Engine.Default__KismetSystemLibrary",
-                    "functionName": "ExecuteConsoleCommand",
-                    "parameters": {
-                        "WorldContextObject": None,
-                        "Command": "HighResShot 1"
-                    },
-                    "generateTransaction": False
-                },
-                timeout=self.timeout
+            result = self.call_function(
+                self.data_capture_path,
+                "CaptureFrame",
+                {
+                    "OutputPath": output_path,
+                    "Width": width,
+                    "Height": height
+                }
             )
             
-            if response.status_code == 200:
-                logger.debug("Screenshot captured via HighResShot console command")
-                return True
+            # Check if function returned true
+            success = result.get("ReturnValue", False)
+            if success:
+                logger.info(f"Frame captured: {output_path}")
             else:
-                logger.warning(f"Screenshot command returned status {response.status_code}")
-                return False
+                logger.warning(f"Frame capture returned false: {output_path}")
+            
+            return success
+            
         except Exception as e:
-            logger.error(f"Screenshot command failed: {e}")
+            logger.error(f"Frame capture failed: {e}")
             return False
     
     def set_property(self, object_path: str, property_name: str, 
@@ -274,26 +273,6 @@ class UE5Bridge:
             }
         )
         logger.debug(f"Spawned {count} objects from classes: {object_classes}")
-    
-    def capture_frame(self, output_path: str = None) -> bool:
-        """
-        Capture current frame via C++ VantageCVSubsystem.
-        Hybrid approach: Python orchestration → C++ execution for performance.
-        
-        Args:
-            output_path: (Optional) Path for captured image
-            
-        Returns:
-            True if capture succeeded
-        """
-        result = self.call_function(
-            "/Script/VantageCV.Default__VantageCVSubsystem",
-            "CaptureFrame"
-        )
-        
-        success = result.get("ReturnValue", False)
-        logger.debug(f"Triggered frame capture via C++ subsystem: {success}")
-        return success
     
     def generate_annotations(self) -> Dict[str, Any]:
         """
