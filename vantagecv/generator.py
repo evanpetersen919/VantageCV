@@ -60,7 +60,18 @@ class SyntheticDataGenerator:
         if use_ue5:
             try:
                 from .ue5_bridge import UE5Bridge
-                self.ue5_bridge = UE5Bridge(host=ue5_host, port=ue5_port)
+                
+                # Get UE5 actor paths from config
+                ue5_config = config.get('industrial.ue5', {})
+                scene_controller_path = ue5_config.get('scene_controller_path')
+                data_capture_path = ue5_config.get('data_capture_path')
+                
+                self.ue5_bridge = UE5Bridge(
+                    host=ue5_host, 
+                    port=ue5_port,
+                    scene_controller_path=scene_controller_path,
+                    data_capture_path=data_capture_path
+                )
                 logger.info("Connected to UE5 rendering engine")
                 
                 # Pass UE5 bridge to domain for scene randomization
@@ -207,52 +218,35 @@ class SyntheticDataGenerator:
         """
         Capture image from UE5 rendering engine or generate mock data.
         
-        If connected to UE5, uses the Remote Control API to call VantageCVSubsystem.
+        If connected to UE5, uses DataCapture actor for professional frame capture.
         Otherwise, generates placeholder images for development and testing.
         
         Args:
             output_path: Filesystem path where the captured image will be saved
             
         Raises:
-            ValueError: If resolution configuration is invalid
-            IOError: If image cannot be saved to output_path
             RuntimeError: If UE5 capture fails
         """
         if self.use_ue5 and self.ue5_bridge:
-            # Use actual UE5 rendering via VantageCVSubsystem
+            # Use DataCapture actor for professional rendering
             try:
-                success = self.ue5_bridge.capture_frame(str(output_path))
+                # Get resolution from config
+                resolution = self.config.get('industrial.ue5.default_resolution', [1920, 1080])
+                
+                # Capture directly to output path
+                success = self.ue5_bridge.capture_frame(
+                    str(output_path),
+                    width=resolution[0],
+                    height=resolution[1]
+                )
+                
                 if not success:
-                    raise RuntimeError("VantageCVSubsystem.CaptureFrame() returned false")
-                
-                # UE5 saves to its own Screenshots directory, copy to our output location
-                import shutil
-                
-                # Auto-detect screenshot path if not configured
-                if self.ue5_screenshot_path is None:
-                    # Default UE5 screenshot location
-                    ue5_capture_path = Path.home() / "Documents" / "Unreal Projects" / "VantageCV_Project" / "Saved" / "Screenshots" / "test_capture.png"
-                    # Also try alternate common locations
-                    if not ue5_capture_path.exists():
-                        for candidate in [
-                            Path("F:/Unreal Editor/VantageCV_Project/Saved/Screenshots/test_capture.png"),
-                            Path.home() / "AppData" / "Local" / "UnrealEngine" / "VantageCV_Project" / "Saved" / "Screenshots" / "test_capture.png"
-                        ]:
-                            if candidate.exists():
-                                ue5_capture_path = candidate
-                                self.ue5_screenshot_path = candidate
-                                break
-                else:
-                    ue5_capture_path = self.ue5_screenshot_path
-                
-                if ue5_capture_path.exists():
-                    shutil.copy2(ue5_capture_path, output_path)
-                else:
-                    raise RuntimeError(f"UE5 capture file not found at {ue5_capture_path}. Set ue5_screenshot_path in constructor.")
+                    raise RuntimeError("DataCapture.CaptureFrame() returned false")
                     
                 return
+                    
             except Exception as e:
-                raise RuntimeError(f"UE5 frame capture failed: {str(e)}") from e
+                raise RuntimeError(f"UE5 frame capture failed: {e}")
         
         # Mock data generation (for development without UE5)
         resolution = self.config.get('camera.resolution', [1920, 1080])
@@ -335,6 +329,28 @@ class SyntheticDataGenerator:
         Returns:
             Unified annotation dict compatible with COCO exporter
         """
+        # Automotive domain (new COCO format): already in correct format
+        if 'annotations' in domain_annotations and 'metadata' in domain_annotations:
+            if domain_annotations.get('metadata', {}).get('domain') == 'automotive':
+                # Already in COCO format, convert to unified components format
+                unified = {
+                    'image_filename': domain_annotations.get('image_filename', ''),
+                    'timestamp': domain_annotations.get('timestamp', ''),
+                    'components': [],
+                    'defects': []
+                }
+                for ann in domain_annotations['annotations']:
+                    component = {
+                        'class': ann.get('category_name', ann.get('class')),
+                        'category_id': ann.get('category_id'),
+                        'bbox': ann['bbox'],
+                        'segmentation': ann.get('segmentation', []),
+                        'pose': ann.get('pose'),
+                        'attributes': ann.get('attributes', {})
+                    }
+                    unified['components'].append(component)
+                return unified
+        
         unified = {
             'image_filename': domain_annotations.get('image_filename', ''),
             'timestamp': domain_annotations.get('timestamp', ''),
@@ -347,7 +363,21 @@ class SyntheticDataGenerator:
             unified['components'] = domain_annotations['components']
             unified['defects'] = domain_annotations.get('defects', [])
         
-        # Automotive domain: has 'vehicles' and 'pedestrians'
+        # Automotive domain (old format - shouldn't reach here now)
+        elif 'annotations' in domain_annotations and domain_annotations.get('metadata', {}).get('domain') == 'automotive':
+            # Already in COCO format, convert to components for unified format
+            for ann in domain_annotations['annotations']:
+                component = {
+                    'class': ann.get('category_name', ann.get('class')),
+                    'category_id': ann.get('category_id'),
+                    'bbox': ann['bbox'],
+                    'segmentation': ann.get('segmentation', []),
+                    'pose': ann.get('pose'),
+                    'attributes': ann.get('attributes', {})
+                }
+                unified['components'].append(component)
+        
+        # Automotive domain (old format): has 'vehicles' and 'pedestrians'
         elif 'vehicles' in domain_annotations:
             # Convert vehicles to components
             for vehicle in domain_annotations.get('vehicles', []):

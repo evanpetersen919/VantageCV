@@ -256,6 +256,27 @@ class UE5Bridge:
             {"TargetTags": object_types}
         )
     
+    def randomize_camera(self, distance_range: tuple, fov_range: tuple) -> None:
+        """
+        Randomize camera position and FOV via C++ DataCapture actor.
+        Hybrid approach: Python orchestration → C++ execution for performance.
+        
+        Args:
+            distance_range: (min, max) distance from target in cm
+            fov_range: (min, max) field of view in degrees
+        """
+        self.call_function(
+            self.data_capture_path,
+            "RandomizeCamera",
+            {
+                "MinDistance": distance_range[0],
+                "MaxDistance": distance_range[1],
+                "MinFOV": fov_range[0],
+                "MaxFOV": fov_range[1]
+            }
+        )
+        logger.debug(f"Randomized camera: distance={distance_range}, fov={fov_range}")
+    
     def spawn_objects(self, object_classes: List[str], count: int) -> None:
         """
         Spawn random objects in the scene.

@@ -74,6 +74,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "VantageCV")
 	void SetResolution(int32 Width, int32 Height);
 
+	/** Match viewport camera position and FOV */
+	UFUNCTION(BlueprintCallable, Category = "VantageCV")
+	void MatchViewportCamera();
+
+	/** Randomize camera position around target with spherical coordinates */
+	UFUNCTION(BlueprintCallable, Category = "VantageCV")
+	void RandomizeCamera(float MinDistance, float MaxDistance, float MinFOV, float MaxFOV);
+
 protected:
 	virtual void BeginPlay() override;
 

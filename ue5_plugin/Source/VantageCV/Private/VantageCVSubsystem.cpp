@@ -59,7 +59,8 @@ bool UVantageCVSubsystem::CaptureFrame()
 		if (DataCapture && IsValid(DataCapture))
 		{
 			UE_LOG(LogVantageCVSubsystem, Log, TEXT("Found DataCapture actor: %s"), *DataCapture->GetName());
-			DataCapture->CaptureFrame();
+			FString OutputPath = FPaths::ProjectSavedDir() / TEXT("Screenshots/VantageCV");
+			DataCapture->CaptureFrame(OutputPath, 1920, 1080);
 			UE_LOG(LogVantageCVSubsystem, Log, TEXT("CaptureFrame() executed successfully"));
 			return true;
 		}
@@ -98,8 +99,9 @@ bool UVantageCVSubsystem::RandomizeScene()
 		if (SceneController && IsValid(SceneController))
 		{
 			UE_LOG(LogVantageCVSubsystem, Log, TEXT("Found SceneController actor: %s"), *SceneController->GetName());
-			SceneController->RandomizeLighting();
-			SceneController->RandomizeMaterials();
+			SceneController->RandomizeLighting(100.0f, 1000.0f, 4000.0f, 7000.0f);
+			TArray<FString> TargetTags = {TEXT("Ground")};
+			SceneController->RandomizeMaterials(TargetTags);
 			UE_LOG(LogVantageCVSubsystem, Log, TEXT("Scene randomization complete"));
 			return true;
 		}

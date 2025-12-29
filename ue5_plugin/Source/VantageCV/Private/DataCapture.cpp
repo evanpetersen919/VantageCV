@@ -42,6 +42,23 @@ ADataCapture::ADataCapture()
 		CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 		CaptureComponent->bCaptureEveryFrame = false;
 		CaptureComponent->bCaptureOnMovement = false;
+		
+		// Enable post-processing but with fixed manual exposure for consistency
+		CaptureComponent->ShowFlags.SetPostProcessing(true);
+		CaptureComponent->ShowFlags.SetMotionBlur(false);
+		CaptureComponent->ShowFlags.SetBloom(false);  // Disable bloom/glow
+		CaptureComponent->ShowFlags.SetTemporalAA(false);
+		CaptureComponent->ShowFlags.SetEyeAdaptation(false);  // Disable auto-exposure
+		
+		// Set manual exposure for consistent brightness across captures
+		CaptureComponent->PostProcessSettings.bOverride_AutoExposureMethod = true;
+		CaptureComponent->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+		CaptureComponent->PostProcessSettings.bOverride_AutoExposureBias = true;
+		CaptureComponent->PostProcessSettings.AutoExposureBias = 1.0f;  // Slight boost for indoor scenes
+		
+		// Explicitly disable bloom in post-process settings
+		CaptureComponent->PostProcessSettings.bOverride_BloomIntensity = true;
+		CaptureComponent->PostProcessSettings.BloomIntensity = 0.0f;
 	}
 }
 
@@ -95,6 +112,23 @@ bool ADataCapture::CaptureFrame(const FString& OutputPath, int32 Width, int32 He
 			CaptureComponent->bCaptureOnMovement = false;
 			CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 			
+			// Enable post-processing but with fixed manual exposure for consistency
+			CaptureComponent->ShowFlags.SetPostProcessing(true);
+			CaptureComponent->ShowFlags.SetMotionBlur(false);
+			CaptureComponent->ShowFlags.SetBloom(false);  // Disable bloom/glow
+			CaptureComponent->ShowFlags.SetTemporalAA(false);
+			CaptureComponent->ShowFlags.SetEyeAdaptation(false);  // Disable auto-exposure
+			
+			// Set manual exposure for consistent brightness across captures
+			CaptureComponent->PostProcessSettings.bOverride_AutoExposureMethod = true;
+			CaptureComponent->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+			CaptureComponent->PostProcessSettings.bOverride_AutoExposureBias = true;
+			CaptureComponent->PostProcessSettings.AutoExposureBias = 1.0f;  // Slight boost for indoor scenes
+			
+			// Explicitly disable bloom in post-process settings
+			CaptureComponent->PostProcessSettings.bOverride_BloomIntensity = true;
+			CaptureComponent->PostProcessSettings.BloomIntensity = 0.0f;
+			
 			// Attach to root
 			if (GetRootComponent())
 			{
@@ -122,6 +156,9 @@ bool ADataCapture::CaptureFrame(const FString& OutputPath, int32 Width, int32 He
 	{
 		SetResolution(Width, Height);
 	}
+
+	// Match viewport camera position and FOV
+	MatchViewportCamera();
 
 	// Capture scene
 	CaptureComponent->CaptureScene();
@@ -344,6 +381,59 @@ FVector2D ADataCapture::ProjectWorldToScreen(const FVector& WorldLocation) const
 	PC->ProjectWorldLocationToScreen(WorldLocation, ScreenLocation);
 
 	return ScreenLocation;
+}
+
+void ADataCapture::MatchViewportCamera()
+{
+	UWorld* World = GetWorld();
+	if (!World || !CaptureComponent) return;
+
+	APlayerCameraManager* CameraManager = UGameplayStatics::GetPlayerCameraManager(World, 0);
+	if (CameraManager)
+	{
+		// Match camera transform
+		FVector CamLocation = CameraManager->GetCameraLocation();
+		FRotator CamRotation = CameraManager->GetCameraRotation();
+		
+		SetActorLocation(CamLocation);
+		SetActorRotation(CamRotation);
+		
+		// Match FOV
+		float CamFOV = CameraManager->GetFOVAngle();
+		CaptureComponent->FOVAngle = CamFOV;
+		
+		UE_LOG(LogDataCapture, Log, TEXT("Matched viewport camera - Location: %s, Rotation: %s, FOV: %.2f"), 
+			*CamLocation.ToString(), *CamRotation.ToString(), CamFOV);
+	}
+}
+
+void ADataCapture::RandomizeCamera(float MinDistance, float MaxDistance, float MinFOV, float MaxFOV)
+{
+	if (!CaptureComponent) return;
+
+	// Random spherical coordinates for camera placement around origin
+	float Distance = FMath::RandRange(MinDistance, MaxDistance);
+	float Theta = FMath::RandRange(0.0f, 360.0f);  // Azimuth (around object)
+	float Phi = FMath::RandRange(30.0f, 80.0f);   // Elevation (overhead angles only, 90 = directly above)
+
+	FVector CameraLocation = FVector(
+		Distance * FMath::Cos(FMath::DegreesToRadians(Theta)) * FMath::Cos(FMath::DegreesToRadians(Phi)),
+		Distance * FMath::Sin(FMath::DegreesToRadians(Theta)) * FMath::Cos(FMath::DegreesToRadians(Phi)),
+		Distance * FMath::Sin(FMath::DegreesToRadians(Phi))
+	);
+
+	// Look at origin (where PCB is)
+	FRotator CameraRotation = (FVector::ZeroVector - CameraLocation).Rotation();
+	
+	SetActorLocation(CameraLocation);
+	SetActorRotation(CameraRotation);
+
+	// Randomize FOV
+	float RandomFOV = FMath::RandRange(MinFOV, MaxFOV);
+	CaptureComponent->FOVAngle = RandomFOV;
+	
+	UE_LOG(LogDataCapture, Log, TEXT("Randomized camera - Location: %s, Rotation: %s, FOV: %.2f, Distance: %.2f"), 
+		*CameraLocation.ToString(), *CameraRotation.ToString(), RandomFOV, Distance);
 }
 
 bool ADataCapture::SaveRenderTargetToFile(UTextureRenderTarget2D* InRenderTarget, const FString& FilePath)

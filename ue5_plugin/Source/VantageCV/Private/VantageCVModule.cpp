@@ -34,7 +34,8 @@ static FAutoConsoleCommand CaptureFrameCommand(
 				if (DataCapture)
 				{
 					UE_LOG(LogVantageCV, Log, TEXT("Executing CaptureFrame() on DataCapture actor"));
-					DataCapture->CaptureFrame();
+					FString OutputPath = FPaths::ProjectSavedDir() / TEXT("Screenshots/VantageCV");
+					DataCapture->CaptureFrame(OutputPath, 1920, 1080);
 					return;
 				}
 			}

@@ -141,16 +141,16 @@ void ASceneController::RandomizeMaterials(const TArray<FString>& TargetTags)
 				UMaterialInstanceDynamic* DynMaterial = MeshComp->CreateAndSetMaterialInstanceDynamic(i);
 				if (DynMaterial)
 				{
-					// Randomize common material parameters
-					DynMaterial->SetScalarParameterValue(FName("Metallic"), FMath::RandRange(0.0f, 1.0f));
-					DynMaterial->SetScalarParameterValue(FName("Roughness"), FMath::RandRange(0.0f, 1.0f));
-					DynMaterial->SetScalarParameterValue(FName("Specular"), FMath::RandRange(0.3f, 0.9f));
+					// Randomize material parameters for PCB-like surfaces (non-metallic, slightly rough)
+					DynMaterial->SetScalarParameterValue(FName("Metallic"), FMath::RandRange(0.0f, 0.2f));  // PCBs are not metallic
+					DynMaterial->SetScalarParameterValue(FName("Roughness"), FMath::RandRange(0.4f, 0.8f));  // Slightly rough fiberglass
+					DynMaterial->SetScalarParameterValue(FName("Specular"), FMath::RandRange(0.3f, 0.6f));  // Moderate specular
 					
-					// Randomize base color tint
+					// Randomize base color tint (subtle variation)
 					FLinearColor RandomTint = FLinearColor(
-						FMath::RandRange(0.8f, 1.2f),
-						FMath::RandRange(0.8f, 1.2f),
-						FMath::RandRange(0.8f, 1.2f)
+						FMath::RandRange(0.9f, 1.1f),
+						FMath::RandRange(0.9f, 1.1f),
+						FMath::RandRange(0.9f, 1.1f)
 					);
 					DynMaterial->SetVectorParameterValue(FName("BaseColorTint"), RandomTint);
 					

@@ -23,7 +23,7 @@ camera:
     forward_offset: 2.0  # meters from vehicle center
   fps: 30
 
-# Object classes for detection
+# Object classes for detection (COCO-aligned vehicle classification)
 objects:
   classes:
     - "car"
@@ -31,15 +31,19 @@ objects:
     - "bus"
     - "motorcycle"
     - "bicycle"
-    - "pedestrian"
-    - "traffic_light"
-    - "traffic_sign"
-    - "cone"
-    - "barrier"
   
   # 3D detection settings
   include_3d_boxes: true
   include_orientation: true
+  
+  # COCO evaluation settings
+  coco_aligned: true
+  coco_category_ids:
+    car: 3
+    truck: 8
+    bus: 6
+    motorcycle: 4
+    bicycle: 2
 
 # Automotive-specific settings
 automotive:
@@ -108,4 +112,69 @@ annotations:
   include_depth: true
   include_segmentation: true
   min_object_size: 16  # pixels
+
+#==============================================================================
+# Structured Domain Randomization (SDR)
+#==============================================================================
+# Research-grade domain randomization for sim-to-real transfer.
+# Based on: Tobin et al. (2017), Tremblay et al. (2018)
+#
+# This configuration enables extreme domain randomization to prevent
+# the model from overfitting to synthetic backgrounds and textures.
+#==============================================================================
+
+domain_randomization:
+  # Reproducibility (-1 for random seed each run)
+  random_seed: -1
+  
+  # Ground Plane Randomization
+  # Random colors force the model to focus on vehicle features
+  ground_color_min: [0.1, 0.1, 0.1]   # RGB (0-1), minimum color
+  ground_color_max: [0.6, 0.6, 0.6]   # RGB (0-1), maximum color
+  ground_roughness_range: [0.3, 0.9]  # Material roughness
+  
+  # Lighting Randomization
+  # Varying lighting conditions improve generalization
+  sun_intensity_range: [1.0, 15.0]       # lux multiplier
+  sun_elevation_range: [15.0, 75.0]      # degrees above horizon
+  sun_azimuth_range: [0.0, 360.0]        # compass direction
+  color_temperature_range: [4000.0, 7500.0]  # Kelvin
+  
+  # Distractor Objects
+  # Random geometric shapes with random colors as background noise
+  distractor_enabled: true
+  distractor_count_range: [5, 15]        # number of distractors per scene
+  distractor_scale_range: [0.5, 3.0]     # relative size
+  distractor_distance_range: [500.0, 2000.0]  # distance from camera (cm)
+  distractor_random_colors: true         # randomize distractor colors
+  distractor_random_shapes: true         # use different primitive shapes
+  
+  # Camera Randomization
+  # Varying viewpoints prevent overfitting to specific angles
+  camera_distance_range: [300.0, 800.0]  # cm from scene center
+  camera_height_range: [100.0, 250.0]    # cm above ground
+  camera_fov_range: [60.0, 90.0]         # field of view (degrees)
+  camera_pitch_range: [-15.0, -5.0]      # look-down angle
+  
+  # Vehicle Placement
+  # Class-balanced placement with collision avoidance
+  vehicle_count_range: [1, 6]            # vehicles per scene
+  vehicle_spacing_min: 100.0             # minimum spacing (cm)
+  vehicle_rotation_range: [-30.0, 30.0]  # yaw variation (degrees)
+
+#==============================================================================
+# UE5 Integration Settings
+#==============================================================================
+ue5:
+  # Remote Control API settings
+  remote_control_port: 30010
+  
+  # Actor paths in your UE5 level (replace "automobile" with your level name)
+  scene_controller_path: "/Game/automobile.automobile:PersistentLevel.SceneController"
+  data_capture_path: "/Game/automobile.automobile:PersistentLevel.CaptureCamera"
+  domain_randomization_path: "/Game/automobile.automobile:PersistentLevel.DomainRandomization"
+  
+  # Output settings
+  output_directory: "F:/Unreal Editor/VantageCV_Project/Saved/Screenshots/VantageCV"
+  default_resolution: [1920, 1080]
 

@@ -100,6 +100,18 @@ class IndustrialDomain(BaseDomain):
             # Use actor pattern from config
             actor_pattern = self.config.get('industrial.ue5.target_actor_pattern', 'StaticMeshActor')
             self.ue5_bridge.randomize_materials(object_types=[actor_pattern])
+            
+            # Randomize camera position for variety
+            camera_config = self.config.get('camera', {})
+            height_range = camera_config.get('height_range', [30, 60])
+            distance_range = (height_range[0], height_range[1])
+            fov = camera_config.get('fov', 65)
+            fov_range = (fov - 5, fov + 5)
+            
+            self.ue5_bridge.randomize_camera(
+                distance_range=distance_range,
+                fov_range=fov_range
+            )
         
         # Use randomization utilities for consistent, realistic parameters
         lighting_params = LightingRandomizer.randomize_industrial_lighting()
