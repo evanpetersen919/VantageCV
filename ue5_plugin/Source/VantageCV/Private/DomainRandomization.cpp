@@ -13,8 +13,6 @@
 #include "DomainRandomization.h"
 #include "Engine/DirectionalLight.h"
 #include "Components/DirectionalLightComponent.h"
-#include "Components/SkyAtmosphereComponent.h"
-#include "Atmosphere/AtmosphericFogComponent.h"
 #include "Engine/SkyLight.h"
 #include "Components/SkyLightComponent.h"
 #include "Kismet/GameplayStatics.h"
@@ -22,6 +20,9 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/StaticMeshActor.h"
 #include "UObject/ConstructorHelpers.h"
+
+// Forward declaration - ASkyAtmosphere not needed for this implementation
+class ASkyAtmosphere;
 
 DEFINE_LOG_CATEGORY_STATIC(LogDomainRandomization, Log, All);
 

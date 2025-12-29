@@ -169,9 +169,9 @@ ue5:
   # Remote Control API settings
   remote_control_port: 30010
   
-  # Actor paths in your UE5 level (replace "automobile" with your level name)
+  # Actor paths in your UE5 level
   scene_controller_path: "/Game/automobile.automobile:PersistentLevel.SceneController"
-  data_capture_path: "/Game/automobile.automobile:PersistentLevel.CaptureCamera"
+  data_capture_path: "/Game/automobile.automobile:PersistentLevel.DataCapture_1"
   domain_randomization_path: "/Game/automobile.automobile:PersistentLevel.DomainRandomization"
   
   # Output settings

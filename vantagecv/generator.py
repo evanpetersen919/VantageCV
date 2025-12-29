@@ -61,8 +61,8 @@ class SyntheticDataGenerator:
             try:
                 from .ue5_bridge import UE5Bridge
                 
-                # Get UE5 actor paths from config
-                ue5_config = config.get('industrial.ue5', {})
+                # Get UE5 config - it's at the top level 'ue5' key
+                ue5_config = config.get('ue5', {})
                 scene_controller_path = ue5_config.get('scene_controller_path')
                 data_capture_path = ue5_config.get('data_capture_path')
                 
@@ -228,14 +228,15 @@ class SyntheticDataGenerator:
             RuntimeError: If UE5 capture fails
         """
         if self.use_ue5 and self.ue5_bridge:
-            # Use DataCapture actor for professional rendering
+            # Use DataCapture actor (skip screenshot commands, they don't work)
             try:
                 # Get resolution from config
-                resolution = self.config.get('industrial.ue5.default_resolution', [1920, 1080])
+                ue5_config = self.config.get('ue5', {})
+                resolution = ue5_config.get('default_resolution', [1920, 1080])
                 
-                # Capture directly to output path
+                # Capture directly to output path (use absolute path)
                 success = self.ue5_bridge.capture_frame(
-                    str(output_path),
+                    str(output_path.resolve()),
                     width=resolution[0],
                     height=resolution[1]
                 )

@@ -331,3 +331,24 @@ class UE5Bridge:
     def close(self) -> None:
         """Close connection and cleanup resources."""
         logger.info("Closing UE5 bridge connection")
+    
+    def _execute_command(self, command: str) -> Dict[str, Any]:
+        """
+        Execute a console command in UE5.
+        
+        Args:
+            command: Console command to execute
+            
+        Returns:
+            Response from UE5
+        """
+        url = f"http://{self.host}:{self.port}/remote/exec"
+        payload = {"Command": command}
+        
+        try:
+            response = requests.post(url, json=payload, timeout=self.timeout)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Console command failed: {command} - {e}")
+            return {}

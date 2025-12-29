@@ -55,31 +55,31 @@ public:
 	ADataCapture();
 
 	/** Capture current frame to disk as PNG */
-	UFUNCTION(BlueprintCallable, Category = "VantageCV")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "VantageCV")
 	bool CaptureFrame(const FString& OutputPath, int32 Width, int32 Height);
 
 	/** Generate bounding box annotations in JSON format */
-	UFUNCTION(BlueprintCallable, Category = "VantageCV")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "VantageCV")
 	FString GenerateBoundingBoxes(const TArray<FString>& TargetTags);
 
 	/** Generate segmentation mask and save to disk */
-	UFUNCTION(BlueprintCallable, Category = "VantageCV")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "VantageCV")
 	bool GenerateSegmentationMask(const FString& OutputPath, int32 Width, int32 Height);
 
 	/** Generate 6D pose annotations for all objects */
-	UFUNCTION(BlueprintCallable, Category = "VantageCV")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "VantageCV")
 	FString GeneratePoseAnnotations(const TArray<FString>& TargetTags);
 
 	/** Set render target resolution */
-	UFUNCTION(BlueprintCallable, Category = "VantageCV")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "VantageCV")
 	void SetResolution(int32 Width, int32 Height);
 
 	/** Match viewport camera position and FOV */
-	UFUNCTION(BlueprintCallable, Category = "VantageCV")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "VantageCV")
 	void MatchViewportCamera();
 
 	/** Randomize camera position around target with spherical coordinates */
-	UFUNCTION(BlueprintCallable, Category = "VantageCV")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "VantageCV")
 	void RandomizeCamera(float MinDistance, float MaxDistance, float MinFOV, float MaxFOV);
 
 protected:

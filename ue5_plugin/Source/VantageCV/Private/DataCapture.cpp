@@ -25,6 +25,7 @@
 #include "Misc/FileHelper.h"
 #include "Json.h"
 #include "JsonUtilities.h"
+#include "RenderingThread.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDataCapture, Log, All);
 
@@ -79,19 +80,34 @@ void ADataCapture::Tick(float DeltaTime)
 
 void ADataCapture::SetResolution(int32 Width, int32 Height)
 {
-	// Create RGB render target
-	RenderTarget = NewObject<UTextureRenderTarget2D>();
+	// Reuse existing render target if resolution matches
+	if (RenderTarget && RenderTarget->SizeX == Width && RenderTarget->SizeY == Height)
+	{
+		UE_LOG(LogDataCapture, Log, TEXT("Render target already at %dx%d, reusing"), Width, Height);
+		return;
+	}
+
+	// Create RGB render target with high-quality RGBA8 format
+	RenderTarget = NewObject<UTextureRenderTarget2D>(this);
+	RenderTarget->RenderTargetFormat = RTF_RGBA8;
+	RenderTarget->ClearColor = FLinearColor::Black;
+	RenderTarget->bAutoGenerateMips = false;
 	RenderTarget->InitAutoFormat(Width, Height);
 	RenderTarget->UpdateResourceImmediate(true);
 
 	// Create segmentation render target
-	SegmentationTarget = NewObject<UTextureRenderTarget2D>();
+	SegmentationTarget = NewObject<UTextureRenderTarget2D>(this);
+	SegmentationTarget->RenderTargetFormat = RTF_RGBA8;
+	SegmentationTarget->ClearColor = FLinearColor::Black;
+	SegmentationTarget->bAutoGenerateMips = false;
 	SegmentationTarget->InitAutoFormat(Width, Height);
 	SegmentationTarget->UpdateResourceImmediate(true);
 
 	if (CaptureComponent)
 	{
 		CaptureComponent->TextureTarget = RenderTarget;
+		CaptureComponent->bCaptureEveryFrame = false;
+		CaptureComponent->bCaptureOnMovement = false;
 	}
 
 	UE_LOG(LogDataCapture, Log, TEXT("Set render resolution to %dx%d"), Width, Height);
@@ -99,80 +115,96 @@ void ADataCapture::SetResolution(int32 Width, int32 Height)
 
 bool ADataCapture::CaptureFrame(const FString& OutputPath, int32 Width, int32 Height)
 {
-	// Initialize components if not already done (for Editor mode)
-	if (!CaptureComponent || !RenderTarget)
+	UE_LOG(LogDataCapture, Log, TEXT("CaptureFrame called: %s (%dx%d)"), *OutputPath, Width, Height);
+	
+	// Ensure CaptureComponent exists - use the one from constructor if available
+	if (!CaptureComponent)
 	{
-		UE_LOG(LogDataCapture, Log, TEXT("Initializing components for Editor mode capture"));
-		
-		if (!CaptureComponent)
+		UE_LOG(LogDataCapture, Warning, TEXT("CaptureComponent was null, creating new one"));
+		CaptureComponent = NewObject<USceneCaptureComponent2D>(this, TEXT("DataCaptureComponent"));
+		CaptureComponent->RegisterComponent();
+		CaptureComponent->AttachToComponent(GetRootComponent(), FAttachmentTransformRules::SnapToTargetIncludingScale);
+	}
+	
+	// Configure capture settings
+	CaptureComponent->bCaptureEveryFrame = false;
+	CaptureComponent->bCaptureOnMovement = false;
+	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	CaptureComponent->ShowFlags.SetPostProcessing(true);
+	CaptureComponent->ShowFlags.SetMotionBlur(false);
+	CaptureComponent->ShowFlags.SetBloom(false);
+	CaptureComponent->ShowFlags.SetTemporalAA(false);
+	CaptureComponent->ShowFlags.SetEyeAdaptation(false);
+	CaptureComponent->PostProcessSettings.bOverride_AutoExposureMethod = true;
+	CaptureComponent->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+	CaptureComponent->PostProcessSettings.bOverride_AutoExposureBias = true;
+	CaptureComponent->PostProcessSettings.AutoExposureBias = 1.0f;
+	CaptureComponent->PostProcessSettings.bOverride_BloomIntensity = true;
+	CaptureComponent->PostProcessSettings.BloomIntensity = 0.0f;
+
+	// Create or update render target
+	if (!RenderTarget || RenderTarget->SizeX != Width || RenderTarget->SizeY != Height)
+	{
+		UE_LOG(LogDataCapture, Log, TEXT("Creating render target %dx%d"), Width, Height);
+		RenderTarget = NewObject<UTextureRenderTarget2D>(this);
+		RenderTarget->RenderTargetFormat = RTF_RGBA8;
+		RenderTarget->ClearColor = FLinearColor::Black;
+		RenderTarget->bAutoGenerateMips = false;
+		RenderTarget->InitAutoFormat(Width, Height);
+		RenderTarget->UpdateResourceImmediate(true);
+	}
+	
+	// CRITICAL: Assign render target to capture component
+	CaptureComponent->TextureTarget = RenderTarget;
+	UE_LOG(LogDataCapture, Log, TEXT("TextureTarget assigned, size: %dx%d"), RenderTarget->SizeX, RenderTarget->SizeY);
+
+	// Get camera position from editor viewport
+	UWorld* World = GetWorld();
+	if (World)
+	{
+		// Try to get the editor viewport camera
+		for (FConstPlayerControllerIterator Iterator = World->GetPlayerControllerIterator(); Iterator; ++Iterator)
 		{
-			CaptureComponent = NewObject<USceneCaptureComponent2D>(this, TEXT("DataCaptureComponent"));
-			CaptureComponent->RegisterComponent();
-			CaptureComponent->bCaptureEveryFrame = false;
-			CaptureComponent->bCaptureOnMovement = false;
-			CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
-			
-			// Enable post-processing but with fixed manual exposure for consistency
-			CaptureComponent->ShowFlags.SetPostProcessing(true);
-			CaptureComponent->ShowFlags.SetMotionBlur(false);
-			CaptureComponent->ShowFlags.SetBloom(false);  // Disable bloom/glow
-			CaptureComponent->ShowFlags.SetTemporalAA(false);
-			CaptureComponent->ShowFlags.SetEyeAdaptation(false);  // Disable auto-exposure
-			
-			// Set manual exposure for consistent brightness across captures
-			CaptureComponent->PostProcessSettings.bOverride_AutoExposureMethod = true;
-			CaptureComponent->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
-			CaptureComponent->PostProcessSettings.bOverride_AutoExposureBias = true;
-			CaptureComponent->PostProcessSettings.AutoExposureBias = 1.0f;  // Slight boost for indoor scenes
-			
-			// Explicitly disable bloom in post-process settings
-			CaptureComponent->PostProcessSettings.bOverride_BloomIntensity = true;
-			CaptureComponent->PostProcessSettings.BloomIntensity = 0.0f;
-			
-			// Attach to root
-			if (GetRootComponent())
+			APlayerController* PC = Iterator->Get();
+			if (PC && PC->PlayerCameraManager)
 			{
-				CaptureComponent->AttachToComponent(GetRootComponent(), FAttachmentTransformRules::SnapToTargetIncludingScale);
+				FVector CamLoc = PC->PlayerCameraManager->GetCameraLocation();
+				FRotator CamRot = PC->PlayerCameraManager->GetCameraRotation();
+				float FOV = PC->PlayerCameraManager->GetFOVAngle();
+				
+				SetActorLocation(CamLoc);
+				SetActorRotation(CamRot);
+				CaptureComponent->FOVAngle = FOV;
+				
+				UE_LOG(LogDataCapture, Log, TEXT("Camera: Loc=%s Rot=%s FOV=%.1f"), *CamLoc.ToString(), *CamRot.ToString(), FOV);
+				break;
 			}
 		}
-		
-		if (!RenderTarget)
-		{
-			RenderTarget = NewObject<UTextureRenderTarget2D>();
-			RenderTarget->InitAutoFormat(Width, Height);
-			RenderTarget->UpdateResourceImmediate(true);
-			
-			if (CaptureComponent)
-			{
-				CaptureComponent->TextureTarget = RenderTarget;
-			}
-		}
-		
-		UE_LOG(LogDataCapture, Log, TEXT("Components initialized successfully"));
 	}
 
-	// Update resolution if needed
-	if (RenderTarget->SizeX != Width || RenderTarget->SizeY != Height)
-	{
-		SetResolution(Width, Height);
-	}
-
-	// Match viewport camera position and FOV
-	MatchViewportCamera();
-
-	// Capture scene
+	// Capture the scene
+	UE_LOG(LogDataCapture, Log, TEXT("Calling CaptureScene()..."));
 	CaptureComponent->CaptureScene();
+	
+	// Wait for render to complete
+	FlushRenderingCommands();
+	
+	FRenderCommandFence Fence;
+	Fence.BeginFence();
+	Fence.Wait();
+	
+	UE_LOG(LogDataCapture, Log, TEXT("Render commands flushed, saving to file..."));
 
 	// Save to file
 	bool bSuccess = SaveRenderTargetToFile(RenderTarget, OutputPath);
 	
 	if (bSuccess)
 	{
-		UE_LOG(LogDataCapture, Log, TEXT("Captured frame to: %s (%dx%d)"), *OutputPath, Width, Height);
+		UE_LOG(LogDataCapture, Log, TEXT("SUCCESS: Captured frame to: %s (%dx%d)"), *OutputPath, Width, Height);
 	}
 	else
 	{
-		UE_LOG(LogDataCapture, Error, TEXT("Failed to save frame to: %s"), *OutputPath);
+		UE_LOG(LogDataCapture, Error, TEXT("FAILED to save frame to: %s"), *OutputPath);
 	}
 
 	return bSuccess;
@@ -438,29 +470,68 @@ void ADataCapture::RandomizeCamera(float MinDistance, float MaxDistance, float M
 
 bool ADataCapture::SaveRenderTargetToFile(UTextureRenderTarget2D* InRenderTarget, const FString& FilePath)
 {
-	if (!InRenderTarget) return false;
-
-	TArray<FColor> Pixels;
-	if (!ReadRenderTargetPixels(InRenderTarget, Pixels))
+	if (!InRenderTarget)
 	{
+		UE_LOG(LogDataCapture, Error, TEXT("SaveRenderTargetToFile: InRenderTarget is null"));
 		return false;
 	}
 
-	// Use FImageUtils for high-quality PNG export (research-grade quality)
-	// Save asynchronously to avoid blocking game thread
-	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [Pixels, FilePath, Width = InRenderTarget->SizeX, Height = InRenderTarget->SizeY]()
-	{
-		IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(FName("ImageWrapper"));
-		TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
-		
-		if (ImageWrapper.IsValid() && ImageWrapper->SetRaw(Pixels.GetData(), Pixels.Num() * sizeof(FColor), Width, Height, ERGBFormat::BGRA, 8))
-		{
-			const TArray64<uint8>& CompressedData = ImageWrapper->GetCompressed(100);
-			FFileHelper::SaveArrayToFile(CompressedData, *FilePath);
-		}
-	});
+	UE_LOG(LogDataCapture, Log, TEXT("Saving render target to: %s"), *FilePath);
 
-	return true;
+	// Ensure directory exists
+	FString Directory = FPaths::GetPath(FilePath);
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+	if (!PlatformFile.DirectoryExists(*Directory))
+	{
+		UE_LOG(LogDataCapture, Log, TEXT("Creating directory: %s"), *Directory);
+		PlatformFile.CreateDirectoryTree(*Directory);
+	}
+
+	// Use FImageUtils for reliable render target export
+	FTextureRenderTargetResource* RTResource = InRenderTarget->GameThread_GetRenderTargetResource();
+	if (!RTResource)
+	{
+		UE_LOG(LogDataCapture, Error, TEXT("Failed to get render target resource"));
+		return false;
+	}
+
+	// Read pixels synchronously
+	TArray<FColor> Pixels;
+	Pixels.SetNum(InRenderTarget->SizeX * InRenderTarget->SizeY);
+	
+	UE_LOG(LogDataCapture, Log, TEXT("Reading %dx%d pixels..."), InRenderTarget->SizeX, InRenderTarget->SizeY);
+	
+	FReadSurfaceDataFlags ReadFlags(RCM_UNorm);
+	if (!RTResource->ReadPixels(Pixels, ReadFlags))
+	{
+		UE_LOG(LogDataCapture, Error, TEXT("Failed to read pixels from render target"));
+		return false;
+	}
+
+	// Create image wrapper and save as PNG
+	IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(FName("ImageWrapper"));
+	TSharedPtr<IImageWrapper> ImageWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
+	
+	if (ImageWrapper.IsValid() && ImageWrapper->SetRaw(Pixels.GetData(), Pixels.Num() * sizeof(FColor), 
+		InRenderTarget->SizeX, InRenderTarget->SizeY, ERGBFormat::BGRA, 8))
+	{
+		const TArray64<uint8>& CompressedData = ImageWrapper->GetCompressed(100);
+		if (FFileHelper::SaveArrayToFile(CompressedData, *FilePath))
+		{
+			UE_LOG(LogDataCapture, Log, TEXT("Successfully saved %lld bytes to: %s"), CompressedData.Num(), *FilePath);
+			return true;
+		}
+		else
+		{
+			UE_LOG(LogDataCapture, Error, TEXT("FFileHelper::SaveArrayToFile failed for: %s"), *FilePath);
+		}
+	}
+	else
+	{
+		UE_LOG(LogDataCapture, Error, TEXT("Image wrapper SetRaw or Compress failed"));
+	}
+
+	return false;
 }
 
 bool ADataCapture::ReadRenderTargetPixels(UTextureRenderTarget2D* InRenderTarget, TArray<FColor>& OutPixels)
@@ -473,7 +544,5 @@ bool ADataCapture::ReadRenderTargetPixels(UTextureRenderTarget2D* InRenderTarget
 	OutPixels.SetNum(InRenderTarget->SizeX * InRenderTarget->SizeY);
 	
 	FReadSurfaceDataFlags ReadPixelFlags(RCM_UNorm);
-	ReadPixelFlags.SetLinearToGamma(false);
-
 	return RTResource->ReadPixels(OutPixels, ReadPixelFlags);
 }

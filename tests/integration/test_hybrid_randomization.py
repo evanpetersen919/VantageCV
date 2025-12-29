@@ -74,8 +74,17 @@ def main():
         except Exception as e:
             print(f"✗ Materials failed: {e}")
         
+        # Randomize camera (optional - varies viewpoint slightly)
+        print(f"\n4. Randomizing camera position (C++)...")
+        try:
+            # Overhead inspection camera with slight variation
+            bridge.randomize_camera(distance_range=(50, 70), fov_range=(65, 75))
+            print("✓ Camera randomized via SceneController")
+        except Exception as e:
+            print(f"✗ Camera failed: {e}")
+        
         # Capture frame
-        print(f"\n4. Capturing frame (C++)...")
+        print(f"\n5. Capturing frame (C++)...")
         try:
             output_path = f"{output_dir}/frame_{i:04d}.png"
             success = bridge.capture_frame(output_path, resolution[0], resolution[1])
