@@ -82,6 +82,18 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "VantageCV")
 	void RandomizeCamera(float MinDistance, float MaxDistance, float MinFOV, float MaxFOV);
 
+	/** Randomize camera position with explicit target point (for looking at specific vehicles) */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "VantageCV")
+	void RandomizeCameraWithTarget(float MinDistance, float MaxDistance, float MinFOV, float MaxFOV, FVector TargetPoint);
+
+	/** Set the scene center for camera orbiting */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "VantageCV")
+	void SetSceneCenter(FVector NewCenter);
+
+	/** Get current scene center */
+	UFUNCTION(BlueprintCallable, Category = "VantageCV")
+	FVector GetSceneCenter() const { return SceneCenter; }
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -100,6 +112,14 @@ private:
 	/** Render target for segmentation masks */
 	UPROPERTY()
 	UTextureRenderTarget2D* SegmentationTarget;
+
+	/** Scene center point - camera orbits around this location */
+	UPROPERTY()
+	FVector SceneCenter;
+
+	/** Initial FOV setting */
+	UPROPERTY()
+	float InitialFOV;
 
 	/** Find all actors matching tags */
 	TArray<AActor*> GetAnnotatableActors(const TArray<FString>& Tags) const;

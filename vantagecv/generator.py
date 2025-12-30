@@ -149,7 +149,11 @@ class SyntheticDataGenerator:
         while generated_count < target_count and attempts < max_attempts:
             attempts += 1
             
-            # Randomize scene
+            # Apply UE5 randomization if connected (BEFORE capture)
+            if self.use_ue5 and self.ue5_bridge:
+                self._apply_ue5_randomization()
+            
+            # Randomize scene (generates metadata, may also do UE5 calls if domain supports it)
             randomization_metadata = self.domain.randomize_scene()
             
             # Validate scene quality
@@ -213,6 +217,103 @@ class SyntheticDataGenerator:
         print(f"{'='*60}\n")
         
         return self.stats
+    
+    def _apply_ue5_randomization(self) -> None:
+        """
+        Apply scene randomization via UE5 C++ actors.
+        
+        Calls DomainRandomization, SceneController, and DataCapture actors
+        to randomize the scene before each capture.
+        """
+        import random
+        
+        ue5_config = self.config.get('ue5', {})
+        dr_config = self.config.get('domain_randomization', {})
+        
+        # Get actor paths
+        domain_rand_path = ue5_config.get('domain_randomization_path')
+        scene_controller_path = ue5_config.get('scene_controller_path')
+        data_capture_path = ue5_config.get('data_capture_path')
+        
+        # 1. Apply domain randomization (ground, sky, distractors)
+        if domain_rand_path:
+            try:
+                self.ue5_bridge.call_function(
+                    domain_rand_path,
+                    "ApplyRandomization",
+                    {}
+                )
+            except Exception as e:
+                logger.warning(f"DomainRandomization failed: {e}")
+        
+        # 2. Randomize lighting via SceneController
+        if scene_controller_path:
+            try:
+                intensity_range = dr_config.get('sun_intensity_range', [3.0, 10.0])
+                temp_range = dr_config.get('color_temperature_range', [4000.0, 7000.0])
+                
+                self.ue5_bridge.call_function(
+                    scene_controller_path,
+                    "RandomizeLighting",
+                    {
+                        "MinIntensity": intensity_range[0],
+                        "MaxIntensity": intensity_range[1],
+                        "MinTemperature": temp_range[0],
+                        "MaxTemperature": temp_range[1]
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Lighting randomization failed: {e}")
+        
+        # 3. Get random vehicle location for camera targeting (professional training variety)
+        target_location = None
+        if domain_rand_path and dr_config.get('camera_target_random_vehicle', True):
+            try:
+                # Call GetRandomVehicleLocation to get a vehicle position for camera focus
+                result = self.ue5_bridge.call_function(
+                    domain_rand_path,
+                    "GetRandomVehicleLocation",
+                    {}
+                )
+                if result and 'ReturnValue' in result:
+                    target_location = result['ReturnValue']
+                    logger.debug(f"Camera targeting vehicle at: {target_location}")
+            except Exception as e:
+                logger.warning(f"GetRandomVehicleLocation failed: {e}")
+        
+        # 4. Randomize camera position and FOV, optionally targeting a specific vehicle
+        if data_capture_path:
+            try:
+                distance_range = dr_config.get('camera_distance_range', [400.0, 1200.0])
+                fov_range = dr_config.get('camera_fov_range', [60.0, 90.0])
+                
+                if target_location:
+                    # Use vehicle-targeted camera randomization
+                    self.ue5_bridge.call_function(
+                        data_capture_path,
+                        "RandomizeCameraWithTarget",
+                        {
+                            "MinDistance": distance_range[0],
+                            "MaxDistance": distance_range[1],
+                            "MinFOV": fov_range[0],
+                            "MaxFOV": fov_range[1],
+                            "TargetPoint": target_location
+                        }
+                    )
+                else:
+                    # Fall back to scene center targeting
+                    self.ue5_bridge.call_function(
+                        data_capture_path,
+                        "RandomizeCamera",
+                        {
+                            "MinDistance": distance_range[0],
+                            "MaxDistance": distance_range[1],
+                            "MinFOV": fov_range[0],
+                            "MaxFOV": fov_range[1]
+                        }
+                    )
+            except Exception as e:
+                logger.warning(f"Camera randomization failed: {e}")
     
     def _capture_image(self, output_path: Path) -> None:
         """

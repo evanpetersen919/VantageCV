@@ -135,32 +135,41 @@ domain_randomization:
   
   # Lighting Randomization
   # Varying lighting conditions improve generalization
-  sun_intensity_range: [1.0, 15.0]       # lux multiplier
-  sun_elevation_range: [15.0, 75.0]      # degrees above horizon
+  sun_intensity_range: [50.0, 120.0]     # lux multiplier (UE5 outdoor typical: 50-150)
+  sun_elevation_range: [40.0, 70.0]      # degrees above horizon (strong midday sun)
   sun_azimuth_range: [0.0, 360.0]        # compass direction
-  color_temperature_range: [4000.0, 7500.0]  # Kelvin
+  color_temperature_range: [5500.0, 6500.0]  # Kelvin (neutral to cool daylight)
   
   # Distractor Objects
   # Random geometric shapes with random colors as background noise
   distractor_enabled: true
-  distractor_count_range: [5, 15]        # number of distractors per scene
-  distractor_scale_range: [0.5, 3.0]     # relative size
-  distractor_distance_range: [500.0, 2000.0]  # distance from camera (cm)
-  distractor_random_colors: true         # randomize distractor colors
-  distractor_random_shapes: true         # use different primitive shapes
+  distractor_count_range: [3, 8]         # fewer distractors
+  distractor_scale_range: [0.3, 1.0]     # smaller scale (30-100 cm cubes)
+  distractor_distance_range: [1000.0, 3000.0]  # 10-30 meters from camera
+  distractor_random_colors: true
+  distractor_random_shapes: true
   
   # Camera Randomization
   # Varying viewpoints prevent overfitting to specific angles
-  camera_distance_range: [300.0, 800.0]  # cm from scene center
-  camera_height_range: [100.0, 250.0]    # cm above ground
-  camera_fov_range: [60.0, 90.0]         # field of view (degrees)
+  camera_distance_range: [800.0, 2000.0]  # cm from scene center (8-20 meters)
+  camera_height_range: [150.0, 400.0]    # cm above ground
+  camera_fov_range: [70.0, 100.0]         # field of view (degrees) - wider FOV
   camera_pitch_range: [-15.0, -5.0]      # look-down angle
   
-  # Vehicle Placement
-  # Class-balanced placement with collision avoidance
-  vehicle_count_range: [1, 6]            # vehicles per scene
-  vehicle_spacing_min: 100.0             # minimum spacing (cm)
-  vehicle_rotation_range: [-30.0, 30.0]  # yaw variation (degrees)
+  # Camera Target Selection (Professional Training Data)
+  # When enabled, camera randomly selects a visible vehicle to focus on
+  # This provides maximum variety by not always pointing at scene center
+  camera_target_random_vehicle: true
+  
+  # Vehicle Position Randomization (Research-Grade)
+  # Randomize vehicle positions each frame for maximum training variety
+  vehicle_randomization_enabled: true
+  vehicle_count_range: [2, 5]               # how many vehicles visible per frame
+  vehicle_spawn_area: [4000.0, 4000.0]      # spawn area size in cm (40x40 meters)
+  vehicle_min_spacing: 400.0                # minimum spacing between vehicles (cm)
+  vehicle_rotation_range: [0.0, 360.0]      # random yaw rotation
+  vehicle_ground_offset: 0.0                # height above ground (cm)
+  vehicle_scale_range: [0.95, 1.05]         # slight scale variation for realism
 
 #==============================================================================
 # UE5 Integration Settings
@@ -169,10 +178,10 @@ ue5:
   # Remote Control API settings
   remote_control_port: 30010
   
-  # Actor paths in your UE5 level
-  scene_controller_path: "/Game/automobile.automobile:PersistentLevel.SceneController"
+  # Actor paths in your UE5 level (auto-discovered with _1 suffix)
+  scene_controller_path: "/Game/automobile.automobile:PersistentLevel.SceneController_1"
   data_capture_path: "/Game/automobile.automobile:PersistentLevel.DataCapture_1"
-  domain_randomization_path: "/Game/automobile.automobile:PersistentLevel.DomainRandomization"
+  domain_randomization_path: "/Game/automobile.automobile:PersistentLevel.DomainRandomization_2"
   
   # Output settings
   output_directory: "F:/Unreal Editor/VantageCV_Project/Saved/Screenshots/VantageCV"

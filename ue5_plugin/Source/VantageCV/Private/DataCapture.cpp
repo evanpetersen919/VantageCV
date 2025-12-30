@@ -44,33 +44,79 @@ ADataCapture::ADataCapture()
 		CaptureComponent->bCaptureEveryFrame = false;
 		CaptureComponent->bCaptureOnMovement = false;
 		
-		// Enable post-processing but with fixed manual exposure for consistency
-		CaptureComponent->ShowFlags.SetPostProcessing(true);
-		CaptureComponent->ShowFlags.SetMotionBlur(false);
-		CaptureComponent->ShowFlags.SetBloom(false);  // Disable bloom/glow
-		CaptureComponent->ShowFlags.SetTemporalAA(false);
-		CaptureComponent->ShowFlags.SetEyeAdaptation(false);  // Disable auto-exposure
+		//==========================================================================
+		// OPTIMIZED PHOTOREALISTIC SETTINGS FOR OBJECT DETECTION TRAINING
+		//==========================================================================
 		
-		// Set manual exposure for consistent brightness across captures
+		// Enable all post-processing for maximum realism
+		CaptureComponent->ShowFlags.SetPostProcessing(true);
+		CaptureComponent->ShowFlags.SetMotionBlur(false);  // Off for sharp training images
+		CaptureComponent->ShowFlags.SetBloom(true);        // Subtle glow on bright areas
+		CaptureComponent->ShowFlags.SetTemporalAA(true);   // Smooth edges
+		CaptureComponent->ShowFlags.SetAmbientOcclusion(true);  // Contact shadows
+		CaptureComponent->ShowFlags.SetEyeAdaptation(false);    // Manual exposure
+		
+		// EXPOSURE - Bright outdoor scenes
 		CaptureComponent->PostProcessSettings.bOverride_AutoExposureMethod = true;
 		CaptureComponent->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
 		CaptureComponent->PostProcessSettings.bOverride_AutoExposureBias = true;
-		CaptureComponent->PostProcessSettings.AutoExposureBias = 1.0f;  // Slight boost for indoor scenes
+		CaptureComponent->PostProcessSettings.AutoExposureBias = 4.0f;  // Bright daylight
 		
-		// Explicitly disable bloom in post-process settings
+		// BLOOM - Subtle for realism
 		CaptureComponent->PostProcessSettings.bOverride_BloomIntensity = true;
-		CaptureComponent->PostProcessSettings.BloomIntensity = 0.0f;
+		CaptureComponent->PostProcessSettings.BloomIntensity = 0.2f;
+		
+		// AMBIENT OCCLUSION - Softer shadows, reduce harsh contrast
+		CaptureComponent->PostProcessSettings.bOverride_AmbientOcclusionIntensity = true;
+		CaptureComponent->PostProcessSettings.AmbientOcclusionIntensity = 0.5f;  // Subtle AO
+		CaptureComponent->PostProcessSettings.bOverride_AmbientOcclusionRadius = true;
+		CaptureComponent->PostProcessSettings.AmbientOcclusionRadius = 100.0f;  // Larger radius
+		
+		// INDIRECT LIGHTING - Fill in dark shadow areas
+		CaptureComponent->PostProcessSettings.bOverride_IndirectLightingIntensity = true;
+		CaptureComponent->PostProcessSettings.IndirectLightingIntensity = 2.0f;  // Boost ambient
+		
+		// COLOR GRADING - Neutral, natural colors
+		CaptureComponent->PostProcessSettings.bOverride_ColorSaturation = true;
+		CaptureComponent->PostProcessSettings.ColorSaturation = FVector4(1.0f, 1.0f, 1.0f, 1.0f);
+		CaptureComponent->PostProcessSettings.bOverride_ColorContrast = true;
+		CaptureComponent->PostProcessSettings.ColorContrast = FVector4(0.95f, 0.95f, 0.95f, 1.0f);  // Slightly less contrast
+		CaptureComponent->PostProcessSettings.bOverride_ColorGamma = true;
+		CaptureComponent->PostProcessSettings.ColorGamma = FVector4(1.0f, 1.0f, 1.0f, 1.0f);
+		
+		// VIGNETTE - Disable for clean training images
+		CaptureComponent->PostProcessSettings.bOverride_VignetteIntensity = true;
+		CaptureComponent->PostProcessSettings.VignetteIntensity = 0.0f;
+		
+		// CHROMATIC ABERRATION - Disable for clean edges
+		CaptureComponent->PostProcessSettings.bOverride_SceneFringeIntensity = true;
+		CaptureComponent->PostProcessSettings.SceneFringeIntensity = 0.0f;
 	}
+	
+	// Initialize scene center to zero (will be set in BeginPlay)
+	SceneCenter = FVector::ZeroVector;
+	InitialFOV = 90.0f;
 }
 
 void ADataCapture::BeginPlay()
 {
 	Super::BeginPlay();
 	
+	// Store initial position as scene center - camera will orbit around this point
+	// Place your DataCapture actor WHERE YOUR VEHICLES ARE in the level
+	SceneCenter = GetActorLocation();
+	
+	// Store initial FOV
+	if (CaptureComponent)
+	{
+		InitialFOV = CaptureComponent->FOVAngle;
+	}
+	
 	// Initialize default render targets
 	SetResolution(1920, 1080);
 	
-	UE_LOG(LogDataCapture, Log, TEXT("DataCapture initialized with 1920x1080 resolution"));
+	UE_LOG(LogDataCapture, Log, TEXT("DataCapture initialized - Scene Center: %s, FOV: %.1f"), 
+		*SceneCenter.ToString(), InitialFOV);
 }
 
 void ADataCapture::Tick(float DeltaTime)
@@ -130,17 +176,30 @@ bool ADataCapture::CaptureFrame(const FString& OutputPath, int32 Width, int32 He
 	CaptureComponent->bCaptureEveryFrame = false;
 	CaptureComponent->bCaptureOnMovement = false;
 	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	
+	// Apply optimized photorealistic settings
 	CaptureComponent->ShowFlags.SetPostProcessing(true);
 	CaptureComponent->ShowFlags.SetMotionBlur(false);
-	CaptureComponent->ShowFlags.SetBloom(false);
-	CaptureComponent->ShowFlags.SetTemporalAA(false);
+	CaptureComponent->ShowFlags.SetBloom(true);
+	CaptureComponent->ShowFlags.SetTemporalAA(true);
+	CaptureComponent->ShowFlags.SetAmbientOcclusion(true);
 	CaptureComponent->ShowFlags.SetEyeAdaptation(false);
+	
+	// Exposure
 	CaptureComponent->PostProcessSettings.bOverride_AutoExposureMethod = true;
 	CaptureComponent->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
 	CaptureComponent->PostProcessSettings.bOverride_AutoExposureBias = true;
-	CaptureComponent->PostProcessSettings.AutoExposureBias = 1.0f;
+	CaptureComponent->PostProcessSettings.AutoExposureBias = 4.0f;
 	CaptureComponent->PostProcessSettings.bOverride_BloomIntensity = true;
-	CaptureComponent->PostProcessSettings.BloomIntensity = 0.0f;
+	CaptureComponent->PostProcessSettings.BloomIntensity = 0.2f;
+	
+	// Fill in shadows with indirect lighting
+	CaptureComponent->PostProcessSettings.bOverride_IndirectLightingIntensity = true;
+	CaptureComponent->PostProcessSettings.IndirectLightingIntensity = 2.0f;
+	
+	// Reduce harsh contrast
+	CaptureComponent->PostProcessSettings.bOverride_ColorContrast = true;
+	CaptureComponent->PostProcessSettings.ColorContrast = FVector4(0.95f, 0.95f, 0.95f, 1.0f);
 
 	// Create or update render target
 	if (!RenderTarget || RenderTarget->SizeX != Width || RenderTarget->SizeY != Height)
@@ -441,21 +500,46 @@ void ADataCapture::MatchViewportCamera()
 
 void ADataCapture::RandomizeCamera(float MinDistance, float MaxDistance, float MinFOV, float MaxFOV)
 {
+	// Use scene center as the target
+	RandomizeCameraWithTarget(MinDistance, MaxDistance, MinFOV, MaxFOV, SceneCenter);
+}
+
+void ADataCapture::SetSceneCenter(FVector NewCenter)
+{
+	SceneCenter = NewCenter;
+	UE_LOG(LogDataCapture, Log, TEXT("Scene center updated to: %s"), *SceneCenter.ToString());
+}
+
+void ADataCapture::RandomizeCameraWithTarget(float MinDistance, float MaxDistance, float MinFOV, float MaxFOV, FVector TargetPoint)
+{
 	if (!CaptureComponent) return;
 
-	// Random spherical coordinates for camera placement around origin
-	float Distance = FMath::RandRange(MinDistance, MaxDistance);
-	float Theta = FMath::RandRange(0.0f, 360.0f);  // Azimuth (around object)
-	float Phi = FMath::RandRange(30.0f, 80.0f);   // Elevation (overhead angles only, 90 = directly above)
+	// Use provided target point, fall back to scene center if zero
+	FVector LookTarget = TargetPoint;
+	if (LookTarget.IsZero())
+	{
+		LookTarget = SceneCenter.IsZero() ? GetActorLocation() : SceneCenter;
+		UE_LOG(LogDataCapture, Warning, TEXT("TargetPoint was zero, using fallback: %s"), *LookTarget.ToString());
+	}
 
-	FVector CameraLocation = FVector(
+	// Random spherical coordinates for camera placement around TARGET
+	// Distance is in centimeters (UE5 units)
+	float Distance = FMath::RandRange(MinDistance, MaxDistance);
+	float Theta = FMath::RandRange(0.0f, 360.0f);  // Azimuth (around target)
+	float Phi = FMath::RandRange(15.0f, 60.0f);    // Elevation (15-60 degrees, realistic driving/surveillance angles)
+
+	// Calculate offset from target using spherical coordinates
+	FVector CameraOffset = FVector(
 		Distance * FMath::Cos(FMath::DegreesToRadians(Theta)) * FMath::Cos(FMath::DegreesToRadians(Phi)),
 		Distance * FMath::Sin(FMath::DegreesToRadians(Theta)) * FMath::Cos(FMath::DegreesToRadians(Phi)),
 		Distance * FMath::Sin(FMath::DegreesToRadians(Phi))
 	);
 
-	// Look at origin (where PCB is)
-	FRotator CameraRotation = (FVector::ZeroVector - CameraLocation).Rotation();
+	// Final camera position = target + offset
+	FVector CameraLocation = LookTarget + CameraOffset;
+
+	// Look at target point (vehicle position)
+	FRotator CameraRotation = (LookTarget - CameraLocation).Rotation();
 	
 	SetActorLocation(CameraLocation);
 	SetActorRotation(CameraRotation);
@@ -464,8 +548,8 @@ void ADataCapture::RandomizeCamera(float MinDistance, float MaxDistance, float M
 	float RandomFOV = FMath::RandRange(MinFOV, MaxFOV);
 	CaptureComponent->FOVAngle = RandomFOV;
 	
-	UE_LOG(LogDataCapture, Log, TEXT("Randomized camera - Location: %s, Rotation: %s, FOV: %.2f, Distance: %.2f"), 
-		*CameraLocation.ToString(), *CameraRotation.ToString(), RandomFOV, Distance);
+	UE_LOG(LogDataCapture, Log, TEXT("Randomized camera - Target: %s, Location: %s, Distance: %.0f cm, FOV: %.1f"), 
+		*LookTarget.ToString(), *CameraLocation.ToString(), Distance, RandomFOV);
 }
 
 bool ADataCapture::SaveRenderTargetToFile(UTextureRenderTarget2D* InRenderTarget, const FString& FilePath)

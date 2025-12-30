@@ -117,6 +117,47 @@ struct FDistractorConfig
 };
 
 /**
+ * Configuration structure for vehicle randomization (Professional/Research-grade)
+ */
+USTRUCT(BlueprintType)
+struct FVehicleRandomizationConfig
+{
+	GENERATED_BODY()
+
+	/** Enable vehicle position randomization */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bEnabled = true;
+
+	/** Number of vehicles to place per scene (min, max) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FIntPoint CountRange = FIntPoint(2, 6);
+
+	/** Spawn area size (X, Y in cm) centered on DomainRandomization actor */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FVector2D SpawnAreaSize = FVector2D(3000.0f, 3000.0f);  // 30m x 30m
+
+	/** Minimum spacing between vehicles (cm) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float MinSpacing = 400.0f;  // 4 meters
+
+	/** Vehicle rotation range (yaw in degrees) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FVector2D RotationRange = FVector2D(0.0f, 360.0f);
+
+	/** Height offset from ground (cm) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float GroundOffset = 0.0f;
+
+	/** Randomize vehicle scale slightly for variety */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bRandomizeScale = false;
+
+	/** Scale variation range (0.9 = 90% to 1.1 = 110%) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FVector2D ScaleRange = FVector2D(0.95f, 1.05f);
+};
+
+/**
  * Configuration structure for lighting randomization
  */
 USTRUCT(BlueprintType)
@@ -173,6 +214,9 @@ struct FDomainRandomizationConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FLightingRandomizationConfig Lighting;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FVehicleRandomizationConfig Vehicles;
+
 	/** Random seed for reproducibility (-1 for random) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	int32 RandomSeed = -1;
@@ -221,6 +265,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
 	void RandomizeLighting();
 
+	/** Randomize vehicle positions for maximum training variety (Research-grade) */
+	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
+	void RandomizeVehicles();
+
+	/** Register a vehicle actor for randomization */
+	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
+	void RegisterVehicle(AActor* Vehicle);
+
+	/** Unregister a vehicle actor */
+	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
+	void UnregisterVehicle(AActor* Vehicle);
+
+	/** Get randomly selected target point for camera focus */
+	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
+	FVector GetRandomVehicleLocation() const;
+
 	/** Set configuration from Python/Blueprint */
 	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
 	void SetConfiguration(const FDomainRandomizationConfig& NewConfig);
@@ -233,6 +293,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
 	void ResetScene();
 
+	/** Reset vehicles to original positions */
+	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
+	void ResetVehicles();
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -241,18 +305,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VantageCV|Configuration")
 	FDomainRandomizationConfig Config;
 
-	/** Ground plane mesh component */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VantageCV|Components")
-	UStaticMeshComponent* GroundPlane;
-
 private:
 	/** Track spawned distractor actors for cleanup */
 	UPROPERTY()
 	TArray<AActor*> SpawnedDistractors;
 
-	/** Dynamic material for ground randomization */
+	/** Track registered vehicle actors for randomization */
 	UPROPERTY()
-	UMaterialInstanceDynamic* GroundMaterial;
+	TArray<AActor*> RegisteredVehicles;
+
+	/** Store original vehicle positions for reset */
+	TArray<FTransform> OriginalVehicleTransforms;
 
 	/** Random stream for reproducible randomization */
 	FRandomStream RandomStream;
@@ -275,6 +338,9 @@ private:
 	/** Find directional light in scene */
 	class ADirectionalLight* FindDirectionalLight() const;
 
-	/** Find sky atmosphere in scene */
-	class ASkyAtmosphere* FindSkyAtmosphere() const;
+	/** Check if position is valid (not colliding with other vehicles) */
+	bool IsPositionValid(const FVector& Position, float MinSpacing, const TArray<FVector>& OccupiedPositions) const;
+
+	/** Auto-discover vehicles in scene by tag */
+	void AutoDiscoverVehicles();
 };

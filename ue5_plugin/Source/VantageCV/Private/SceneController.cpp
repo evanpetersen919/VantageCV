@@ -65,9 +65,16 @@ void ASceneController::RandomizeLighting(float MinIntensity, float MaxIntensity,
 				LightComp->SetIntensity(RandomIntensity);
 				LightComp->SetLightColor(LightColor);
 				
-				// Randomize direction for sun position variation
-				FRotator RandomRotation = GetRandomRotation();
-				DirLight->SetActorRotation(RandomRotation);
+				// Constrained sun rotation for DAYTIME ONLY
+				// Pitch: -70 to -30 = sun 30-70 degrees above horizon (midday to afternoon)
+				// Yaw: 0-360 = sun can be anywhere around the scene
+				// Roll: 0 = no tilt
+				float SunPitch = FMath::RandRange(-70.0f, -30.0f);  // Negative = sun above horizon
+				float SunYaw = FMath::RandRange(0.0f, 360.0f);
+				FRotator SunRotation = FRotator(SunPitch, SunYaw, 0.0f);
+				DirLight->SetActorRotation(SunRotation);
+				
+				UE_LOG(LogSceneController, Verbose, TEXT("Sun rotation: Pitch=%.1f Yaw=%.1f"), SunPitch, SunYaw);
 			}
 		}
 		else if (APointLight* PtLight = Cast<APointLight>(Light))

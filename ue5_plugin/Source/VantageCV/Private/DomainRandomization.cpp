@@ -30,18 +30,9 @@ ADomainRandomization::ADomainRandomization()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
-	// Create ground plane component
-	GroundPlane = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("GroundPlane"));
-	RootComponent = GroundPlane;
-
-	// Load default plane mesh
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> PlaneMesh(
-		TEXT("/Engine/BasicShapes/Plane.Plane"));
-	if (PlaneMesh.Succeeded())
-	{
-		GroundPlane->SetStaticMesh(PlaneMesh.Object);
-		GroundPlane->SetWorldScale3D(FVector(200.0f, 200.0f, 1.0f));
-	}
+	// Create a simple scene component as root
+	USceneComponent* SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
+	RootComponent = SceneRoot;
 }
 
 void ADomainRandomization::BeginPlay()
@@ -49,12 +40,6 @@ void ADomainRandomization::BeginPlay()
 	Super::BeginPlay();
 
 	InitializeDefaultPalettes();
-
-	// Create dynamic material for ground
-	if (GroundPlane && GroundPlane->GetMaterial(0))
-	{
-		GroundMaterial = GroundPlane->CreateAndSetMaterialInstanceDynamic(0);
-	}
 
 	UE_LOG(LogDomainRandomization, Log, 
 		TEXT("Domain Randomization Controller initialized"));
@@ -117,6 +102,7 @@ void ADomainRandomization::ApplyRandomization()
 	RandomizeGround();
 	RandomizeSky();
 	RandomizeLighting();
+	RandomizeVehicles();  // Professional training data: randomize vehicle positions
 	SpawnDistractors();
 
 	UE_LOG(LogDomainRandomization, Log, TEXT("Domain randomization complete"));
@@ -130,46 +116,10 @@ void ADomainRandomization::ApplyRandomizationWithSeed(int32 Seed)
 
 void ADomainRandomization::RandomizeGround()
 {
-	if (!Config.Ground.bRandomizeColor && !Config.Ground.bRandomizeRoughness)
-	{
-		return;
-	}
-
-	if (!GroundMaterial)
-	{
-		// Try to create material if not exists
-		if (GroundPlane && GroundPlane->GetMaterial(0))
-		{
-			GroundMaterial = GroundPlane->CreateAndSetMaterialInstanceDynamic(0);
-		}
-		else
-		{
-			UE_LOG(LogDomainRandomization, Warning, 
-				TEXT("Cannot randomize ground: No material available"));
-			return;
-		}
-	}
-
-	if (Config.Ground.bRandomizeColor)
-	{
-		FLinearColor RandomColor = GetRandomColor(Config.Ground.MinColor, Config.Ground.MaxColor);
-		GroundMaterial->SetVectorParameterValue(FName("BaseColor"), RandomColor);
-
-		UE_LOG(LogDomainRandomization, Verbose, 
-			TEXT("Ground color: R=%.2f G=%.2f B=%.2f"), 
-			RandomColor.R, RandomColor.G, RandomColor.B);
-	}
-
-	if (Config.Ground.bRandomizeRoughness)
-	{
-		float RandomRoughness = GetRandomFloat(
-			Config.Ground.RoughnessRange.X, 
-			Config.Ground.RoughnessRange.Y);
-		GroundMaterial->SetScalarParameterValue(FName("Roughness"), RandomRoughness);
-
-		UE_LOG(LogDomainRandomization, Verbose, 
-			TEXT("Ground roughness: %.2f"), RandomRoughness);
-	}
+	// Ground randomization disabled - no ground component
+	// Use separate static mesh actors in your level for ground planes
+	UE_LOG(LogDomainRandomization, Verbose, 
+		TEXT("RandomizeGround() called but ground component removed - use level meshes"));
 }
 
 void ADomainRandomization::RandomizeSky()
@@ -413,13 +363,6 @@ void ADomainRandomization::ClearDistractors()
 void ADomainRandomization::ResetScene()
 {
 	ClearDistractors();
-	
-	// Reset ground to default gray
-	if (GroundMaterial)
-	{
-		GroundMaterial->SetVectorParameterValue(FName("BaseColor"), FLinearColor(0.3f, 0.3f, 0.3f));
-		GroundMaterial->SetScalarParameterValue(FName("Roughness"), 0.7f);
-	}
 
 	UE_LOG(LogDomainRandomization, Log, TEXT("Scene reset to default state"));
 }
@@ -427,15 +370,6 @@ void ADomainRandomization::ResetScene()
 ADirectionalLight* ADomainRandomization::FindDirectionalLight() const
 {
 	for (TActorIterator<ADirectionalLight> It(GetWorld()); It; ++It)
-	{
-		return *It;
-	}
-	return nullptr;
-}
-
-ASkyAtmosphere* ADomainRandomization::FindSkyAtmosphere() const
-{
-	for (TActorIterator<ASkyAtmosphere> It(GetWorld()); It; ++It)
 	{
 		return *It;
 	}
@@ -463,3 +397,270 @@ FVector ADomainRandomization::GetRandomVector(const FVector& Min, const FVector&
 		GetRandomFloat(Min.Y, Max.Y),
 		GetRandomFloat(Min.Z, Max.Z));
 }
+
+// ============================================================================
+// Vehicle Randomization System - Professional Training Data Generation
+// ============================================================================
+
+void ADomainRandomization::AutoDiscoverVehicles()
+{
+	RegisteredVehicles.Empty();
+	OriginalVehicleTransforms.Empty();
+
+	// Find all actors with "Vehicle" tag in scene
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (Actor && Actor->ActorHasTag(FName("Vehicle")))
+		{
+			RegisteredVehicles.Add(Actor);
+			OriginalVehicleTransforms.Add(Actor->GetTransform());
+		}
+	}
+
+	UE_LOG(LogDomainRandomization, Log, 
+		TEXT("Auto-discovered %d vehicles with 'Vehicle' tag"), RegisteredVehicles.Num());
+}
+
+void ADomainRandomization::RegisterVehicle(AActor* Vehicle)
+{
+	if (!Vehicle)
+	{
+		return;
+	}
+
+	if (!RegisteredVehicles.Contains(Vehicle))
+	{
+		RegisteredVehicles.Add(Vehicle);
+		OriginalVehicleTransforms.Add(Vehicle->GetTransform());
+		
+		// Ensure vehicle has tag for annotation
+		if (!Vehicle->ActorHasTag(FName("Vehicle")))
+		{
+			Vehicle->Tags.Add(FName("Vehicle"));
+		}
+
+		UE_LOG(LogDomainRandomization, Log, 
+			TEXT("Registered vehicle: %s (Total: %d)"), 
+			*Vehicle->GetName(), RegisteredVehicles.Num());
+	}
+}
+
+void ADomainRandomization::UnregisterVehicle(AActor* Vehicle)
+{
+	if (!Vehicle)
+	{
+		return;
+	}
+
+	int32 Index = RegisteredVehicles.IndexOfByKey(Vehicle);
+	if (Index != INDEX_NONE)
+	{
+		RegisteredVehicles.RemoveAt(Index);
+		if (OriginalVehicleTransforms.IsValidIndex(Index))
+		{
+			OriginalVehicleTransforms.RemoveAt(Index);
+		}
+
+		UE_LOG(LogDomainRandomization, Log, 
+			TEXT("Unregistered vehicle: %s"), *Vehicle->GetName());
+	}
+}
+
+bool ADomainRandomization::IsPositionValid(const FVector& Position, float MinSpacing, 
+	const TArray<FVector>& OccupiedPositions) const
+{
+	for (const FVector& Occupied : OccupiedPositions)
+	{
+		float Distance = FVector::Dist2D(Position, Occupied);
+		if (Distance < MinSpacing)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+void ADomainRandomization::RandomizeVehicles()
+{
+	if (!Config.Vehicles.bEnabled)
+	{
+		UE_LOG(LogDomainRandomization, Verbose, 
+			TEXT("Vehicle randomization disabled"));
+		return;
+	}
+
+	// Auto-discover vehicles if none registered
+	if (RegisteredVehicles.Num() == 0)
+	{
+		AutoDiscoverVehicles();
+	}
+
+	if (RegisteredVehicles.Num() == 0)
+	{
+		UE_LOG(LogDomainRandomization, Warning, 
+			TEXT("No vehicles registered for randomization"));
+		return;
+	}
+
+	// Calculate spawn area bounds
+	FVector SpawnCenter = GetActorLocation();
+	float HalfWidth = Config.Vehicles.SpawnAreaSize.X / 2.0f;
+	float HalfLength = Config.Vehicles.SpawnAreaSize.Y / 2.0f;
+
+	TArray<FVector> OccupiedPositions;
+	int32 RandomizedCount = 0;
+	int32 HiddenCount = 0;
+
+	// Determine how many vehicles to show this frame
+	int32 VehiclesToShow = RandomStream.RandRange(
+		Config.Vehicles.CountRange.X,
+		FMath::Min(Config.Vehicles.CountRange.Y, RegisteredVehicles.Num()));
+
+	// Shuffle vehicle indices for random selection
+	TArray<int32> VehicleIndices;
+	for (int32 i = 0; i < RegisteredVehicles.Num(); ++i)
+	{
+		VehicleIndices.Add(i);
+	}
+	
+	// Fisher-Yates shuffle
+	for (int32 i = VehicleIndices.Num() - 1; i > 0; --i)
+	{
+		int32 j = RandomStream.RandRange(0, i);
+		VehicleIndices.Swap(i, j);
+	}
+
+	for (int32 i = 0; i < RegisteredVehicles.Num(); ++i)
+	{
+		AActor* Vehicle = RegisteredVehicles[VehicleIndices[i]];
+		if (!Vehicle || !Vehicle->IsValidLowLevel())
+		{
+			continue;
+		}
+
+		// Hide vehicles beyond the count limit
+		if (i >= VehiclesToShow)
+		{
+			Vehicle->SetActorHiddenInGame(true);
+			HiddenCount++;
+			continue;
+		}
+
+		// Show and randomize this vehicle
+		Vehicle->SetActorHiddenInGame(false);
+
+		// Try to find valid position (avoid overlaps)
+		FVector NewPosition;
+		bool bFoundValid = false;
+		int32 MaxAttempts = 50;
+
+		for (int32 Attempt = 0; Attempt < MaxAttempts && !bFoundValid; ++Attempt)
+		{
+			NewPosition = SpawnCenter + FVector(
+				GetRandomFloat(-HalfWidth, HalfWidth),
+				GetRandomFloat(-HalfLength, HalfLength),
+				Config.Vehicles.GroundOffset);
+
+			bFoundValid = IsPositionValid(NewPosition, Config.Vehicles.MinSpacing, OccupiedPositions);
+		}
+
+		if (bFoundValid)
+		{
+			OccupiedPositions.Add(NewPosition);
+			Vehicle->SetActorLocation(NewPosition);
+
+			// Random rotation (typically just yaw for vehicles)
+			float NewYaw = GetRandomFloat(
+				Config.Vehicles.RotationRange.X,
+				Config.Vehicles.RotationRange.Y);
+			FRotator NewRotation(0.0f, NewYaw, 0.0f);
+			Vehicle->SetActorRotation(NewRotation);
+
+			// Random scale variation if enabled
+			if (Config.Vehicles.ScaleRange.X != Config.Vehicles.ScaleRange.Y)
+			{
+				float ScaleFactor = GetRandomFloat(
+					Config.Vehicles.ScaleRange.X,
+					Config.Vehicles.ScaleRange.Y);
+				Vehicle->SetActorScale3D(FVector(ScaleFactor));
+			}
+
+			RandomizedCount++;
+		}
+		else
+		{
+			// Could not find valid position - hide this vehicle
+			Vehicle->SetActorHiddenInGame(true);
+			HiddenCount++;
+		}
+	}
+
+	UE_LOG(LogDomainRandomization, Log, 
+		TEXT("Vehicle randomization: %d positioned, %d hidden (area: %.0fx%.0f cm)"),
+		RandomizedCount, HiddenCount, 
+		Config.Vehicles.SpawnAreaSize.X, Config.Vehicles.SpawnAreaSize.Y);
+}
+
+FVector ADomainRandomization::GetRandomVehicleLocation() const
+{
+	// Return location of a random visible vehicle (for camera targeting)
+	TArray<AActor*> VisibleVehicles;
+
+	for (AActor* Vehicle : RegisteredVehicles)
+	{
+		if (Vehicle && Vehicle->IsValidLowLevel() && !Vehicle->IsHidden())
+		{
+			VisibleVehicles.Add(Vehicle);
+		}
+	}
+
+	if (VisibleVehicles.Num() > 0)
+	{
+		int32 RandomIndex = FMath::RandRange(0, VisibleVehicles.Num() - 1);
+		FVector VehicleLocation = VisibleVehicles[RandomIndex]->GetActorLocation();
+		
+		// Offset to look at center of vehicle (approximate)
+		VehicleLocation.Z += 100.0f;
+
+		UE_LOG(LogDomainRandomization, Verbose, 
+			TEXT("Random vehicle target: %s at (%s)"), 
+			*VisibleVehicles[RandomIndex]->GetName(),
+			*VehicleLocation.ToString());
+
+		return VehicleLocation;
+	}
+
+	// Fallback to scene center
+	return GetActorLocation();
+}
+
+void ADomainRandomization::ResetVehicles()
+{
+	if (RegisteredVehicles.Num() != OriginalVehicleTransforms.Num())
+	{
+		UE_LOG(LogDomainRandomization, Warning, 
+			TEXT("Vehicle/transform count mismatch - cannot reset"));
+		return;
+	}
+
+	for (int32 i = 0; i < RegisteredVehicles.Num(); ++i)
+	{
+		AActor* Vehicle = RegisteredVehicles[i];
+		if (Vehicle && Vehicle->IsValidLowLevel())
+		{
+			Vehicle->SetActorTransform(OriginalVehicleTransforms[i]);
+			Vehicle->SetActorHiddenInGame(false);
+		}
+	}
+
+	UE_LOG(LogDomainRandomization, Log, 
+		TEXT("Reset %d vehicles to original positions"), RegisteredVehicles.Num());
+}
+
