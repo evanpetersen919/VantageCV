@@ -1,0 +1,186 @@
+#==============================================================================
+# VantageCV Research Configuration
+#==============================================================================
+# Academic-grade synthetic data generation for vehicle perception
+# Designed for publication-quality datasets and ablation studies
+#==============================================================================
+
+domain: automotive
+version: "2.0"
+
+#------------------------------------------------------------------------------
+# Image Output
+#------------------------------------------------------------------------------
+image_width: 1920
+image_height: 1080
+export_formats:
+  - coco
+  - yolo
+  - kitti
+
+#------------------------------------------------------------------------------
+# UE5 Remote Control Configuration
+#------------------------------------------------------------------------------
+ue5:
+  host: localhost
+  port: 30010
+  domain_randomization_path: "/Game/automobile.automobile:PersistentLevel.DomainRandomization_2"
+  scene_controller_path: "/Game/automobile.automobile:PersistentLevel.SceneController_1"
+  data_capture_path: "/Game/automobile.automobile:PersistentLevel.DataCapture_1"
+
+#------------------------------------------------------------------------------
+# Scene Sampling Configuration
+#------------------------------------------------------------------------------
+# Research-grade distributional sampling for controlled ablation studies
+scene_sampling:
+  
+  # Vehicle count distribution (NOT fixed count)
+  # Based on empirical traffic density distributions
+  vehicle_distribution:
+    single: 0.175        # 15-20% single vehicle (class/pose/scale learning)
+    medium: 0.45         # 40-50% 2-4 vehicles (realistic traffic)
+    high: 0.225          # 20-25% 5-10 vehicles (occlusion stress testing)
+    very_high: 0.075     # 5-10% 10+ vehicles (edge case robustness)
+  
+  # Camera configuration (dashcam-style)
+  camera:
+    height_range: [120.0, 180.0]    # cm, typical dashcam mounting
+    fov_range: [60.0, 120.0]        # degrees
+    pitch_jitter: [-5.0, 5.0]       # degrees variation
+    roll_jitter: [-2.0, 2.0]        # degrees variation
+    translation_jitter: [-10.0, 10.0]  # cm lateral offset
+  
+  # Environment weights (sum to 1.0)
+  environment_weights:
+    urban: 0.5
+    suburban: 0.3
+    highway: 0.2
+  
+  # Time of day weights
+  time_weights:
+    noon: 0.4
+    dawn: 0.2
+    dusk: 0.2
+    night: 0.2
+  
+  # Weather condition weights
+  weather_weights:
+    clear: 0.6
+    rain: 0.2
+    fog: 0.15
+    snow: 0.05
+
+#------------------------------------------------------------------------------
+# Domain Randomization
+#------------------------------------------------------------------------------
+domain_randomization:
+  # Grid-based vehicle placement (guaranteed no overlaps)
+  vehicle_min_spacing: 3000.0     # 30m grid spacing (cm)
+  vehicle_random_offset: 500.0    # ±5m random offset within grid
+  
+  # Adaptive camera distance based on vehicle count
+  camera_distance_range: [2000.0, 8000.0]  # 20-80m for 1-23 vehicles
+  camera_fov_range: [60.0, 90.0]
+  
+  # Lighting randomization
+  light_intensity_range: [0.3, 1.0]
+  light_temperature_range: [3500.0, 7500.0]  # Kelvin
+  
+  # Ground/environment randomization
+  ground_material_randomization: true
+  environment_prop_randomization: true
+
+#------------------------------------------------------------------------------
+# Occlusion Settings
+#------------------------------------------------------------------------------
+# Research requirement: 30-40% of images with partial occlusions
+occlusion_threshold: 0.3          # Visibility ratio below this = occluded
+target_occlusion_ratio: 0.35      # Target 35% of instances occluded
+
+#------------------------------------------------------------------------------
+# Edge Case Scenarios
+#------------------------------------------------------------------------------
+# Explicit scenario buckets for long-tail robustness testing
+enabled_scenarios:
+  - night_glare           # Night + headlight glare
+  - backlighting          # Strong sun behind subjects
+  - traffic_jam           # High density, many occlusions
+  - extreme_pitch         # Unusual camera angle
+  - motion_blur           # High-speed motion blur
+  - severe_occlusion      # Heavy occlusion clusters
+  - fog_low_visibility    # Dense fog
+  - rain_reflections      # Wet roads with reflections
+  - dusk_shadows          # Long shadows, mixed lighting
+  - small_objects         # Distant motorcycles/bicycles
+
+# Scenario target percentages (handled by ScenarioGenerator)
+# Total edge cases: ~40% of dataset
+
+#------------------------------------------------------------------------------
+# Vehicle Classes
+#------------------------------------------------------------------------------
+classes:
+  - car
+  - truck
+  - bus
+  - motorcycle
+  - bicycle
+
+# Class weights for sampling (optional - currently uniform)
+class_weights:
+  car: 0.45
+  truck: 0.20
+  bus: 0.15
+  motorcycle: 0.12
+  bicycle: 0.08
+
+#------------------------------------------------------------------------------
+# Annotation Settings
+#------------------------------------------------------------------------------
+annotations:
+  # 2D bounding boxes (always included)
+  include_2d_bbox: true
+  
+  # 3D bounding boxes (requires depth)
+  include_3d_bbox: false
+  
+  # Instance segmentation masks
+  include_segmentation: false
+  
+  # Per-instance attributes
+  include_occlusion_ratio: true
+  include_truncation: true
+  include_velocity: false
+  include_orientation: false
+
+#------------------------------------------------------------------------------
+# Temporal Sequences (Optional)
+#------------------------------------------------------------------------------
+temporal:
+  enabled: false
+  frames_per_sequence: 10
+  sequence_frame_rate: 10  # fps
+
+#------------------------------------------------------------------------------
+# Research Metadata
+#------------------------------------------------------------------------------
+research:
+  dataset_name: "VantageCV Automotive Synthetic Dataset v2.0"
+  description: |
+    Research-grade synthetic dataset for vehicle perception.
+    Supports: object detection, instance segmentation, multi-object tracking.
+    Features: distributional vehicle counts, occlusion modeling, edge case scenarios.
+  
+  ablation_tags:
+    - "vehicle_distribution"
+    - "occlusion_aware"
+    - "edge_case_scenarios"
+  
+  citation: |
+    @misc{vantagecv2025,
+      title={VantageCV: Research-Grade Synthetic Data for Vehicle Perception},
+      author={Petersen, Evan},
+      year={2025},
+      publisher={GitHub},
+      url={https://github.com/evanpetersen919/VantageCV}
+    }

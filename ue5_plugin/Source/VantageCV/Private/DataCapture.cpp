@@ -60,7 +60,7 @@ ADataCapture::ADataCapture()
 		CaptureComponent->PostProcessSettings.bOverride_AutoExposureMethod = true;
 		CaptureComponent->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
 		CaptureComponent->PostProcessSettings.bOverride_AutoExposureBias = true;
-		CaptureComponent->PostProcessSettings.AutoExposureBias = 4.0f;  // Bright daylight
+		CaptureComponent->PostProcessSettings.AutoExposureBias = 8.0f;  // Very bright for visibility
 		
 		// BLOOM - Subtle for realism
 		CaptureComponent->PostProcessSettings.bOverride_BloomIntensity = true;
