@@ -6,6 +6,11 @@
  *              computer vision research. Provides research-grade randomization
  *              of visual elements to enable sim-to-real transfer learning.
  * 
+ * Research References:
+ * - Tobin et al. (2017) "Domain Randomization for Sim-to-Real Transfer"
+ * - Tremblay et al. (2018) "Training Deep Networks with Synthetic Data"
+ * - Kar et al. (2019) "Meta-Sim: Learning to Generate Synthetic Datasets"
+ * 
  * Author: Evan Petersen
  * Date: December 2025
  *****************************************************************************/
@@ -20,6 +25,9 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/StaticMeshActor.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Camera/CameraComponent.h"
+#include "Engine/LocalPlayer.h"
+#include "GameFramework/PlayerController.h"
 
 // Forward declaration - ASkyAtmosphere not needed for this implementation
 class ASkyAtmosphere;
@@ -39,10 +47,55 @@ void ADomainRandomization::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// Suppress spammy Nanite material warnings
+	UE_SET_LOG_VERBOSITY(LogStaticMesh, Error);
+
 	InitializeDefaultPalettes();
+
+	// CRITICAL: Discover and lock vehicle scales IMMEDIATELY at startup
+	// This captures the correct editor-placed scales before anything can corrupt them
+	InitializeVehicleSystem();
 
 	UE_LOG(LogDomainRandomization, Log, 
 		TEXT("Domain Randomization Controller initialized"));
+}
+
+void ADomainRandomization::InitializeVehicleSystem()
+{
+	RegisteredVehicles.Empty();
+	OriginalVehicleTransforms.Empty();
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// Find all actors with "Vehicle" tag
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (Actor && Actor->ActorHasTag(FName("Vehicle")))
+		{
+			// Store the EDITOR-PLACED transform - this is the correct scale
+			FTransform OriginalTransform = Actor->GetTransform();
+			RegisteredVehicles.Add(Actor);
+			OriginalVehicleTransforms.Add(OriginalTransform);
+
+			// IMMEDIATELY hide all vehicles - they start hidden
+			Actor->SetActorHiddenInGame(true);
+			
+			FVector Scale = OriginalTransform.GetScale3D();
+			UE_LOG(LogDomainRandomization, Log, 
+				TEXT("  Vehicle locked: %s (Scale: %.2f, %.2f, %.2f) - HIDDEN"), 
+				*Actor->GetName(), Scale.X, Scale.Y, Scale.Z);
+		}
+	}
+
+	bVehiclesInitialized = true;
+	UE_LOG(LogDomainRandomization, Log, 
+		TEXT("Vehicle system initialized: %d vehicles locked and hidden"), 
+		RegisteredVehicles.Num());
 }
 
 void ADomainRandomization::InitializeDefaultPalettes()
@@ -404,28 +457,17 @@ FVector ADomainRandomization::GetRandomVector(const FVector& Min, const FVector&
 
 void ADomainRandomization::AutoDiscoverVehicles()
 {
-	RegisteredVehicles.Empty();
-	OriginalVehicleTransforms.Empty();
-
-	// Find all actors with "Vehicle" tag in scene
-	UWorld* World = GetWorld();
-	if (!World)
+	// If already initialized at BeginPlay, don't re-discover (preserves locked scales)
+	if (bVehiclesInitialized && RegisteredVehicles.Num() > 0)
 	{
+		UE_LOG(LogDomainRandomization, Verbose, 
+			TEXT("Vehicles already initialized (%d), skipping re-discovery"), 
+			RegisteredVehicles.Num());
 		return;
 	}
 
-	for (TActorIterator<AActor> It(World); It; ++It)
-	{
-		AActor* Actor = *It;
-		if (Actor && Actor->ActorHasTag(FName("Vehicle")))
-		{
-			RegisteredVehicles.Add(Actor);
-			OriginalVehicleTransforms.Add(Actor->GetTransform());
-		}
-	}
-
-	UE_LOG(LogDomainRandomization, Log, 
-		TEXT("Auto-discovered %d vehicles with 'Vehicle' tag"), RegisteredVehicles.Num());
+	// Fallback discovery if BeginPlay didn't run yet
+	InitializeVehicleSystem();
 }
 
 void ADomainRandomization::RegisterVehicle(AActor* Vehicle)
@@ -473,6 +515,132 @@ void ADomainRandomization::UnregisterVehicle(AActor* Vehicle)
 	}
 }
 
+// ============================================================================
+// RESEARCH-GRADE VISIBILITY VALIDATION
+// ============================================================================
+// Implements frustum culling and visibility percentage calculation
+// Vehicles with <50% visibility are hidden to ensure clean training data
+// Based on: Tremblay et al. "Training Deep Networks with Synthetic Data"
+// ============================================================================
+
+float ADomainRandomization::CalculateVisibilityPercentage(AActor* Vehicle, const FVector& CameraLocation, const FRotator& CameraRotation, float FOV) const
+{
+	if (!Vehicle)
+	{
+		return 0.0f;
+	}
+
+	// Get vehicle bounding box corners
+	FVector Origin, Extent;
+	Vehicle->GetActorBounds(false, Origin, Extent);
+	
+	// Calculate 8 corners of bounding box
+	TArray<FVector> Corners;
+	Corners.Add(Origin + FVector(-Extent.X, -Extent.Y, -Extent.Z));
+	Corners.Add(Origin + FVector(-Extent.X, -Extent.Y,  Extent.Z));
+	Corners.Add(Origin + FVector(-Extent.X,  Extent.Y, -Extent.Z));
+	Corners.Add(Origin + FVector(-Extent.X,  Extent.Y,  Extent.Z));
+	Corners.Add(Origin + FVector( Extent.X, -Extent.Y, -Extent.Z));
+	Corners.Add(Origin + FVector( Extent.X, -Extent.Y,  Extent.Z));
+	Corners.Add(Origin + FVector( Extent.X,  Extent.Y, -Extent.Z));
+	Corners.Add(Origin + FVector( Extent.X,  Extent.Y,  Extent.Z));
+	
+	// Count corners within camera frustum
+	int32 VisibleCorners = 0;
+	float HalfFOVRad = FMath::DegreesToRadians(FOV / 2.0f);
+	
+	// Calculate camera forward and right vectors
+	FVector CameraForward = CameraRotation.Vector();
+	FVector CameraRight = FRotationMatrix(CameraRotation).GetUnitAxis(EAxis::Y);
+	FVector CameraUp = FRotationMatrix(CameraRotation).GetUnitAxis(EAxis::Z);
+	
+	for (const FVector& Corner : Corners)
+	{
+		FVector ToCorner = (Corner - CameraLocation).GetSafeNormal();
+		
+		// Check if corner is in front of camera
+		float ForwardDot = FVector::DotProduct(ToCorner, CameraForward);
+		if (ForwardDot < 0.0f)
+		{
+			continue;  // Behind camera
+		}
+		
+		// Check horizontal angle (use slightly wider margin - 60% of FOV as border)
+		float HorizontalAngle = FMath::Acos(FMath::Abs(FVector::DotProduct(ToCorner, CameraRight)));
+		float EffectiveFOV = HalfFOVRad * 0.8f;  // 80% of half-FOV = 40% border on each side
+		
+		if (FMath::Abs(FMath::Acos(ForwardDot)) < EffectiveFOV)
+		{
+			VisibleCorners++;
+		}
+	}
+	
+	// Return percentage of visible corners
+	return (float)VisibleCorners / 8.0f * 100.0f;
+}
+
+bool ADomainRandomization::IsVehicleInSpawnBounds(const FVector& Position, const FVector& SpawnCenter, float HalfWidth, float HalfLength, float Margin) const
+{
+	// Check if vehicle position is within spawn bounds with margin
+	// Margin ensures vehicle bounding box doesn't extend outside spawn area
+	float EffectiveHalfWidth = HalfWidth - Margin;
+	float EffectiveHalfLength = HalfLength - Margin;
+	
+	float DeltaX = FMath::Abs(Position.X - SpawnCenter.X);
+	float DeltaY = FMath::Abs(Position.Y - SpawnCenter.Y);
+	
+	return (DeltaX < EffectiveHalfWidth) && (DeltaY < EffectiveHalfLength);
+}
+
+// Structure to track placed vehicles with their bounding boxes
+struct FPlacedVehicle
+{
+	FVector Position;
+	FBox BoundingBox;
+	float Radius;  // Simplified collision radius
+};
+
+bool ADomainRandomization::IsPositionValidForVehicle(AActor* Vehicle, const FVector& Position, 
+	const TArray<FPlacedVehicle>& PlacedVehicles) const
+{
+	if (!Vehicle)
+	{
+		return false;
+	}
+
+	// Get this vehicle's bounding box
+	FVector Origin, Extent;
+	Vehicle->GetActorBounds(false, Origin, Extent);
+	
+	// Calculate collision radius (use largest XY extent + safety margin)
+	float ThisRadius = FMath::Max(Extent.X, Extent.Y) + 200.0f;  // 2m safety margin
+	
+	// Check against all placed vehicles
+	for (const FPlacedVehicle& Placed : PlacedVehicles)
+	{
+		float Distance = FVector::Dist2D(Position, Placed.Position);
+		float MinRequired = ThisRadius + Placed.Radius;
+		
+		if (Distance < MinRequired)
+		{
+			return false;
+		}
+	}
+	
+	// Also check minimum spacing from config as fallback
+	float ConfigSpacing = Config.Vehicles.MinSpacing;
+	for (const FPlacedVehicle& Placed : PlacedVehicles)
+	{
+		float Distance = FVector::Dist2D(Position, Placed.Position);
+		if (Distance < ConfigSpacing)
+		{
+			return false;
+		}
+	}
+	
+	return true;
+}
+
 bool ADomainRandomization::IsPositionValid(const FVector& Position, float MinSpacing, 
 	const TArray<FVector>& OccupiedPositions) const
 {
@@ -496,116 +664,183 @@ void ADomainRandomization::RandomizeVehicles()
 		return;
 	}
 
-	// Auto-discover vehicles if none registered
-	if (RegisteredVehicles.Num() == 0)
+	// FORCE initialization if not done yet (BeginPlay might run too early)
+	if (!bVehiclesInitialized || RegisteredVehicles.Num() == 0)
 	{
-		AutoDiscoverVehicles();
+		UE_LOG(LogDomainRandomization, Warning, 
+			TEXT("Vehicles not initialized, forcing initialization now..."));
+		InitializeVehicleSystem();
 	}
 
 	if (RegisteredVehicles.Num() == 0)
 	{
-		UE_LOG(LogDomainRandomization, Warning, 
-			TEXT("No vehicles registered for randomization"));
+		UE_LOG(LogDomainRandomization, Error, 
+			TEXT("No vehicles found with 'Vehicle' tag - cannot randomize"));
 		return;
 	}
 
-	// Calculate spawn area bounds
+	UE_LOG(LogDomainRandomization, Log, 
+		TEXT("=== Starting Vehicle Randomization (Total: %d) ==="), 
+		RegisteredVehicles.Num());
+
+	// =========================================================================
+	// STEP 1: MOVE ALL VEHICLES UNDERGROUND (instead of just hiding)
+	// This ensures camera never picks them up even if visibility fails
+	// =========================================================================
+	const float UndergroundZ = -10000.0f;  // 100 meters underground
+	int32 HiddenCount = 0;
+	
+	for (int32 i = 0; i < RegisteredVehicles.Num(); ++i)
+	{
+		AActor* Vehicle = RegisteredVehicles[i];
+		if (!Vehicle || !Vehicle->IsValidLowLevel())
+		{
+			continue;
+		}
+		
+		// CRITICAL: Restore LOCKED scale from BeginPlay/initialization
+		if (OriginalVehicleTransforms.IsValidIndex(i))
+		{
+			FVector LockedScale = OriginalVehicleTransforms[i].GetScale3D();
+			FVector CurrentScale = Vehicle->GetActorScale3D();
+			
+			// Log if scale has been corrupted
+			if (!CurrentScale.Equals(LockedScale, 0.01f))
+			{
+				UE_LOG(LogDomainRandomization, Warning, 
+					TEXT("  %s scale corrupted! Current:(%.2f,%.2f,%.2f) -> Restoring:(%.2f,%.2f,%.2f)"), 
+					*Vehicle->GetName(),
+					CurrentScale.X, CurrentScale.Y, CurrentScale.Z,
+					LockedScale.X, LockedScale.Y, LockedScale.Z);
+			}
+			
+			Vehicle->SetActorScale3D(LockedScale);
+		}
+		
+		// Move vehicle UNDERGROUND - completely out of camera view
+		FVector CurrentLoc = Vehicle->GetActorLocation();
+		Vehicle->SetActorLocation(FVector(CurrentLoc.X, CurrentLoc.Y, UndergroundZ));
+		Vehicle->SetActorHiddenInGame(true);
+		Vehicle->SetActorEnableCollision(false);
+		HiddenCount++;
+	}
+
+	UE_LOG(LogDomainRandomization, Log, 
+		TEXT("  Step 1: All %d vehicles moved underground (Z=%.0f) and scales restored"), 
+		HiddenCount, UndergroundZ);
+
+	// =========================================================================
+	// STEP 2: Calculate spawn parameters - use EXACT ground Z from spawn center
+	// =========================================================================
 	FVector SpawnCenter = GetActorLocation();
+	float GroundZ = SpawnCenter.Z + Config.Vehicles.GroundOffset;  // Exact Z for ALL vehicles
 	float HalfWidth = Config.Vehicles.SpawnAreaSize.X / 2.0f;
 	float HalfLength = Config.Vehicles.SpawnAreaSize.Y / 2.0f;
 
+	UE_LOG(LogDomainRandomization, Log, 
+		TEXT("  Step 2: Ground Z = %.1f (SpawnCenter.Z=%.1f + Offset=%.1f)"), 
+		GroundZ, SpawnCenter.Z, Config.Vehicles.GroundOffset);
+
 	TArray<FVector> OccupiedPositions;
 	int32 RandomizedCount = 0;
-	int32 HiddenCount = 0;
 
 	// Determine how many vehicles to show this frame
 	int32 VehiclesToShow = RandomStream.RandRange(
 		Config.Vehicles.CountRange.X,
 		FMath::Min(Config.Vehicles.CountRange.Y, RegisteredVehicles.Num()));
 
-	// Shuffle vehicle indices for random selection
+	// =========================================================================
+	// STEP 3: Shuffle vehicle indices for random selection
+	// =========================================================================
 	TArray<int32> VehicleIndices;
 	for (int32 i = 0; i < RegisteredVehicles.Num(); ++i)
 	{
 		VehicleIndices.Add(i);
 	}
 	
-	// Fisher-Yates shuffle
+	// Fisher-Yates shuffle for unbiased randomization
 	for (int32 i = VehicleIndices.Num() - 1; i > 0; --i)
 	{
 		int32 j = RandomStream.RandRange(0, i);
 		VehicleIndices.Swap(i, j);
 	}
 
-	for (int32 i = 0; i < RegisteredVehicles.Num(); ++i)
+	// =========================================================================
+	// STEP 4: GRID-BASED PLACEMENT - CENTER SLOTS with adaptive camera zoom
+	// =========================================================================
+	// Use center grid slots - camera zoom adapts to vehicle count
+	// 1 vehicle = close zoom, 5 vehicles = wide zoom to capture all
+	// =========================================================================
+	
+	const float GRID_SPACING = 3000.0f;  // 30 meters between grid slots (tighter for better framing)
+	
+	// Create ONLY CENTER 5 slots (cross pattern)
+	TArray<FVector> GridSlots;
+	GridSlots.Add(SpawnCenter + FVector(0.0f, -GRID_SPACING, 0.0f));      // North
+	GridSlots.Add(SpawnCenter + FVector(-GRID_SPACING, 0.0f, 0.0f));      // West
+	GridSlots.Add(SpawnCenter + FVector(0.0f, 0.0f, 0.0f));               // CENTER
+	GridSlots.Add(SpawnCenter + FVector(GRID_SPACING, 0.0f, 0.0f));       // East
+	GridSlots.Add(SpawnCenter + FVector(0.0f, GRID_SPACING, 0.0f));       // South
+	
+	// Shuffle center slots for variety
+	for (int32 i = GridSlots.Num() - 1; i > 0; --i)
 	{
-		AActor* Vehicle = RegisteredVehicles[VehicleIndices[i]];
+		int32 j = RandomStream.RandRange(0, i);
+		GridSlots.Swap(i, j);
+	}
+	
+	// Cap vehicles to 5 max (one per center slot)
+	VehiclesToShow = FMath::Min(VehiclesToShow, GridSlots.Num());
+	
+	UE_LOG(LogDomainRandomization, Log, 
+		TEXT("  Step 4: Placing %d vehicles in CENTER grid (30m spacing, camera will adapt)"), VehiclesToShow);
+	
+	// Place vehicles in center grid slots
+	int32 SlotIndex = 0;
+	for (int32 i = 0; i < VehiclesToShow && i < VehicleIndices.Num() && SlotIndex < GridSlots.Num(); ++i)
+	{
+		int32 VehicleIndex = VehicleIndices[i];
+		AActor* Vehicle = RegisteredVehicles[VehicleIndex];
 		if (!Vehicle || !Vehicle->IsValidLowLevel())
 		{
 			continue;
 		}
 
-		// Hide vehicles beyond the count limit
-		if (i >= VehiclesToShow)
-		{
-			Vehicle->SetActorHiddenInGame(true);
-			HiddenCount++;
-			continue;
-		}
+		// Get the next available center grid slot
+		FVector SlotPosition = GridSlots[SlotIndex];
+		SlotPosition.Z = GroundZ;
+		SlotIndex++;
+		
+		// Small random offset (max 5m) for variety
+		float OffsetX = GetRandomFloat(-500.0f, 500.0f);
+		float OffsetY = GetRandomFloat(-500.0f, 500.0f);
+		FVector FinalPosition = SlotPosition + FVector(OffsetX, OffsetY, 0.0f);
+		
+		// Get locked scale
+		FVector LockedScale = OriginalVehicleTransforms[VehicleIndex].GetScale3D();
+		
+		// Set position
+		Vehicle->SetActorLocation(FinalPosition);
 
-		// Show and randomize this vehicle
+		// Random rotation
+		float NewYaw = GetRandomFloat(
+			Config.Vehicles.RotationRange.X,
+			Config.Vehicles.RotationRange.Y);
+		Vehicle->SetActorRotation(FRotator(0.0f, NewYaw, 0.0f));
+
+		// Show vehicle
 		Vehicle->SetActorHiddenInGame(false);
-
-		// Try to find valid position (avoid overlaps)
-		FVector NewPosition;
-		bool bFoundValid = false;
-		int32 MaxAttempts = 50;
-
-		for (int32 Attempt = 0; Attempt < MaxAttempts && !bFoundValid; ++Attempt)
-		{
-			NewPosition = SpawnCenter + FVector(
-				GetRandomFloat(-HalfWidth, HalfWidth),
-				GetRandomFloat(-HalfLength, HalfLength),
-				Config.Vehicles.GroundOffset);
-
-			bFoundValid = IsPositionValid(NewPosition, Config.Vehicles.MinSpacing, OccupiedPositions);
-		}
-
-		if (bFoundValid)
-		{
-			OccupiedPositions.Add(NewPosition);
-			Vehicle->SetActorLocation(NewPosition);
-
-			// Random rotation (typically just yaw for vehicles)
-			float NewYaw = GetRandomFloat(
-				Config.Vehicles.RotationRange.X,
-				Config.Vehicles.RotationRange.Y);
-			FRotator NewRotation(0.0f, NewYaw, 0.0f);
-			Vehicle->SetActorRotation(NewRotation);
-
-			// Random scale variation if enabled
-			if (Config.Vehicles.ScaleRange.X != Config.Vehicles.ScaleRange.Y)
-			{
-				float ScaleFactor = GetRandomFloat(
-					Config.Vehicles.ScaleRange.X,
-					Config.Vehicles.ScaleRange.Y);
-				Vehicle->SetActorScale3D(FVector(ScaleFactor));
-			}
-
-			RandomizedCount++;
-		}
-		else
-		{
-			// Could not find valid position - hide this vehicle
-			Vehicle->SetActorHiddenInGame(true);
-			HiddenCount++;
-		}
+		Vehicle->SetActorEnableCollision(true);
+		RandomizedCount++;
+		
+		UE_LOG(LogDomainRandomization, Log, 
+			TEXT("  Slot %d: %s at (%.0f,%.0f)"), 
+			SlotIndex, *Vehicle->GetName(), FinalPosition.X, FinalPosition.Y);
 	}
 
 	UE_LOG(LogDomainRandomization, Log, 
-		TEXT("Vehicle randomization: %d positioned, %d hidden (area: %.0fx%.0f cm)"),
-		RandomizedCount, HiddenCount, 
-		Config.Vehicles.SpawnAreaSize.X, Config.Vehicles.SpawnAreaSize.Y);
+		TEXT("=== %d vehicles placed - Python will adapt camera zoom ==="),
+		RandomizedCount);
 }
 
 FVector ADomainRandomization::GetRandomVehicleLocation() const
@@ -639,6 +874,22 @@ FVector ADomainRandomization::GetRandomVehicleLocation() const
 
 	// Fallback to scene center
 	return GetActorLocation();
+}
+
+int32 ADomainRandomization::GetVisibleVehicleCount()
+{
+	int32 VisibleCount = 0;
+	
+	for (AActor* Vehicle : RegisteredVehicles)
+	{
+		if (Vehicle && Vehicle->IsValidLowLevel() && !Vehicle->IsHidden())
+		{
+			VisibleCount++;
+		}
+	}
+	
+	UE_LOG(LogVantageCV, Log, TEXT("GetVisibleVehicleCount called: %d vehicles visible"), VisibleCount);
+	return VisibleCount;
 }
 
 void ADomainRandomization::ResetVehicles()

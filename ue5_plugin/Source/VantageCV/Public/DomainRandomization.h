@@ -277,6 +277,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
 	void UnregisterVehicle(AActor* Vehicle);
 
+	/** Get count of currently visible vehicles (for adaptive camera zoom) */
+	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
+	int32 GetVisibleVehicleCount();
+
 	/** Get randomly selected target point for camera focus */
 	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
 	FVector GetRandomVehicleLocation() const;
@@ -317,8 +321,14 @@ private:
 	/** Store original vehicle positions for reset */
 	TArray<FTransform> OriginalVehicleTransforms;
 
+	/** Flag to track if vehicles have been initialized */
+	bool bVehiclesInitialized = false;
+
 	/** Random stream for reproducible randomization */
 	FRandomStream RandomStream;
+
+	/** Initialize vehicle system - discover, lock scales, hide all */
+	void InitializeVehicleSystem();
 
 	/** Initialize default sky color palettes */
 	void InitializeDefaultPalettes();
@@ -340,6 +350,15 @@ private:
 
 	/** Check if position is valid (not colliding with other vehicles) */
 	bool IsPositionValid(const FVector& Position, float MinSpacing, const TArray<FVector>& OccupiedPositions) const;
+
+	/** Check if position is valid using bounding box collision detection */
+	bool IsPositionValidForVehicle(AActor* Vehicle, const FVector& Position, const TArray<struct FPlacedVehicle>& PlacedVehicles) const;
+
+	/** Calculate what percentage of vehicle is visible in camera frustum (0-100%) */
+	float CalculateVisibilityPercentage(AActor* Vehicle, const FVector& CameraLocation, const FRotator& CameraRotation, float FOV) const;
+
+	/** Check if vehicle position is within spawn bounds with margin */
+	bool IsVehicleInSpawnBounds(const FVector& Position, const FVector& SpawnCenter, float HalfWidth, float HalfLength, float Margin) const;
 
 	/** Auto-discover vehicles in scene by tag */
 	void AutoDiscoverVehicles();

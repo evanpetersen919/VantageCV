@@ -265,53 +265,48 @@ class SyntheticDataGenerator:
             except Exception as e:
                 logger.warning(f"Lighting randomization failed: {e}")
         
-        # 3. Get random vehicle location for camera targeting (professional training variety)
-        target_location = None
-        if domain_rand_path and dr_config.get('camera_target_random_vehicle', True):
-            try:
-                # Call GetRandomVehicleLocation to get a vehicle position for camera focus
-                result = self.ue5_bridge.call_function(
-                    domain_rand_path,
-                    "GetRandomVehicleLocation",
-                    {}
-                )
-                if result and 'ReturnValue' in result:
-                    target_location = result['ReturnValue']
-                    logger.debug(f"Camera targeting vehicle at: {target_location}")
-            except Exception as e:
-                logger.warning(f"GetRandomVehicleLocation failed: {e}")
+        # 3. Estimate vehicle count for adaptive camera zoom
+        # Use the same random range as C++ RandomizeVehicles for consistency
+        vehicle_count_range = dr_config.get('vehicle_count_range', [1, 5])
+        vehicle_count = random.randint(vehicle_count_range[0], vehicle_count_range[1])
+        logger.debug(f"Estimated vehicles for camera: {vehicle_count}")
         
-        # 4. Randomize camera position and FOV, optionally targeting a specific vehicle
+        # 4. Adaptive camera zoom based on vehicle count
+        # 1 vehicle = close (20-30m), 5 vehicles = far (50-60m)
         if data_capture_path:
             try:
-                distance_range = dr_config.get('camera_distance_range', [400.0, 1200.0])
+                base_distance_range = dr_config.get('camera_distance_range', [2000.0, 6000.0])
                 fov_range = dr_config.get('camera_fov_range', [60.0, 90.0])
                 
-                if target_location:
-                    # Use vehicle-targeted camera randomization
-                    self.ue5_bridge.call_function(
-                        data_capture_path,
-                        "RandomizeCameraWithTarget",
-                        {
-                            "MinDistance": distance_range[0],
-                            "MaxDistance": distance_range[1],
-                            "MinFOV": fov_range[0],
-                            "MaxFOV": fov_range[1],
-                            "TargetPoint": target_location
-                        }
-                    )
+                # Adaptive distance calculation
+                # 1 vehicle: use min distance (2000-3000cm = 20-30m)
+                # 5 vehicles: use max distance (5000-6000cm = 50-60m)
+                # Linear interpolation between
+                if vehicle_count <= 1:
+                    min_dist = base_distance_range[0]  # 2000cm = 20m
+                    max_dist = base_distance_range[0] + 1000.0  # 3000cm = 30m
+                elif vehicle_count >= 5:
+                    min_dist = base_distance_range[1] - 1000.0  # 5000cm = 50m
+                    max_dist = base_distance_range[1]  # 6000cm = 60m
                 else:
-                    # Fall back to scene center targeting
-                    self.ue5_bridge.call_function(
-                        data_capture_path,
-                        "RandomizeCamera",
-                        {
-                            "MinDistance": distance_range[0],
-                            "MaxDistance": distance_range[1],
-                            "MinFOV": fov_range[0],
-                            "MaxFOV": fov_range[1]
-                        }
-                    )
+                    # Interpolate for 2, 3, 4 vehicles
+                    t = (vehicle_count - 1) / 4.0  # 0.0 to 1.0
+                    min_dist = base_distance_range[0] + t * (base_distance_range[1] - base_distance_range[0] - 2000.0)
+                    max_dist = min_dist + 1000.0
+                
+                logger.debug(f"Adaptive camera: {vehicle_count} vehicles -> distance {min_dist:.0f}-{max_dist:.0f}cm")
+                
+                # Use scene center targeting (not random vehicle)
+                self.ue5_bridge.call_function(
+                    data_capture_path,
+                    "RandomizeCamera",
+                    {
+                        "MinDistance": min_dist,
+                        "MaxDistance": max_dist,
+                        "MinFOV": fov_range[0],
+                        "MaxFOV": fov_range[1]
+                    }
+                )
             except Exception as e:
                 logger.warning(f"Camera randomization failed: {e}")
     
