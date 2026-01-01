@@ -63,7 +63,7 @@ class SceneConfig:
     time_of_day: TimeOfDay = TimeOfDay.DAY
     
     # UE5 paths (straight road level)
-    level_path: str = "/Game/Research/StraightRoad"
+    level_path: str = "/Game/automobile"
     
     def __post_init__(self):
         """Validate and compute derived values."""

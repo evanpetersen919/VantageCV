@@ -32,7 +32,7 @@ scene:
   time_of_day: "day"          # "day" or "night"
   
   # UE5 level path
-  level_path: "/Game/Research/StraightRoad"
+  level_path: "/Game/automobile"
 
 # ============================================
 # MODULE 2: Vehicle Spawner

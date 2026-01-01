@@ -22,8 +22,10 @@ from vantagecv.research_v2 import (
     ResearchConfig,
     DatasetOrchestrator,
     ResearchLogger,
+    VehicleSpawner,
 )
 from vantagecv.research_v2.config import load_or_create_config, TimeOfDay
+from vantagecv.ue5_bridge import UE5Bridge
 
 
 def parse_args() -> argparse.Namespace:
@@ -115,6 +117,19 @@ Examples:
     )
     
     parser.add_argument(
+        "--test-connection",
+        action="store_true",
+        help="Test UE5 connection and vehicle visibility controls",
+    )
+    
+    parser.add_argument(
+        "--ue5-port",
+        type=int,
+        default=30010,
+        help="UE5 Remote Control API port (default: 30010)",
+    )
+    
+    parser.add_argument(
         "--progress-interval",
         type=int,
         default=10,
@@ -128,6 +143,114 @@ Examples:
     )
     
     return parser.parse_args()
+
+
+def test_ue5_connection(config: ResearchConfig, port: int) -> int:
+    """
+    Test UE5 connection and vehicle visibility controls.
+    
+    This will:
+    1. Connect to UE5 Remote Control API
+    2. Test hiding all vehicles
+    3. Test showing/positioning a few vehicles
+    4. Restore original state
+    """
+    import time
+    
+    print()
+    print("=" * 60)
+    print("UE5 CONNECTION TEST")
+    print("=" * 60)
+    print()
+    
+    # Step 1: Connect to UE5
+    print(f"[1/5] Connecting to UE5 at localhost:{port}...")
+    try:
+        bridge = UE5Bridge(host="localhost", port=port)
+        bridge.level_name = "automobile"
+        print("      ✓ Connection successful!")
+    except ConnectionError as e:
+        print(f"      ✗ Connection FAILED: {e}")
+        print()
+        print("Troubleshooting:")
+        print("  1. Is UE5 running with automobile level open?")
+        print("  2. Is the Remote Control API plugin enabled?")
+        print("  3. Check Edit > Project Settings > Plugins > Remote Control")
+        print(f"  4. Verify port {port} is correct")
+        return 1
+    
+    # Step 2: Test hiding all vehicles
+    print()
+    print("[2/5] Hiding all vehicle actors...")
+    vehicle_actors = config.vehicles.vehicle_actors
+    total_actors = sum(len(actors) for actors in vehicle_actors.values())
+    
+    hidden_count = bridge.hide_all_vehicles(vehicle_actors)
+    if hidden_count == total_actors:
+        print(f"      ✓ Hidden {hidden_count}/{total_actors} actors")
+    else:
+        print(f"      ⚠ Hidden {hidden_count}/{total_actors} actors (some may have failed)")
+    
+    time.sleep(0.5)  # Let UE5 update
+    
+    # Step 3: Test spawning a few vehicles
+    print()
+    print("[3/5] Spawning test vehicles...")
+    
+    spawner = VehicleSpawner(config.vehicles, config.scene)
+    spawner.set_seed(42)
+    result = spawner.spawn_vehicles(count=3)
+    
+    if result.success:
+        print(f"      Generated {len(result.vehicles)} vehicle positions:")
+        for v in result.vehicles:
+            print(f"        - {v.actor_name} ({v.vehicle_class.value}) at x={v.transform.x:.1f}m, y={v.transform.y:.1f}m")
+    else:
+        print("      ✗ Spawn generation failed")
+        return 1
+    
+    # Step 4: Send commands to UE5
+    print()
+    print("[4/5] Sending visibility/transform commands to UE5...")
+    
+    commands = spawner.get_ue5_spawn_commands(result.vehicles)
+    success_count = bridge.execute_spawn_commands(commands)
+    
+    print(f"      Executed {success_count}/{len(commands)} commands")
+    
+    if success_count == len(commands):
+        print("      ✓ All commands successful!")
+    else:
+        print("      ⚠ Some commands failed - check actor paths")
+    
+    # Step 5: Summary
+    print()
+    print("[5/5] Test complete!")
+    print()
+    print("=" * 60)
+    print("RESULT: ", end="")
+    if success_count > 0:
+        print("SUCCESS - UE5 integration is working!")
+        print()
+        print("You should see 3 vehicles positioned on the road in UE5.")
+        print("Press Enter to hide all vehicles and exit...")
+        try:
+            input()
+        except KeyboardInterrupt:
+            pass
+        
+        # Cleanup: hide all vehicles
+        bridge.hide_all_vehicles(vehicle_actors)
+        print("Vehicles hidden. Test complete.")
+        return 0
+    else:
+        print("FAILED - Check UE5 setup")
+        print()
+        print("Possible issues:")
+        print("  - Actor names don't match (Car_1 vs car_1)")
+        print("  - Level path incorrect (/Game/automobile)")
+        print("  - Remote Control not responding to calls")
+        return 1
 
 
 def main() -> int:
@@ -183,6 +306,10 @@ def main() -> int:
         return 1
     
     print("Configuration validated successfully")
+    
+    # Test connection mode
+    if args.test_connection:
+        return test_ue5_connection(config, args.ue5_port)
     
     if args.dry_run:
         print("\n[DRY RUN] Exiting without generating data")
