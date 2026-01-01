@@ -1,30 +1,56 @@
 #==============================================================================
-# VantageCV - Core Package Initialization
+# VantageCV - Minimal Vehicle Synthetic Data Generator
 #==============================================================================
 # File: __init__.py
-# Description: Package initialization for VantageCV core modules
+# Description: Package initialization for VantageCV
 # Author: Evan Petersen
 # Date: December 2025
 #==============================================================================
 
 """
-VantageCV: Synthetic Data Generation for Computer Vision
+VantageCV: Research-Grade Synthetic Vehicle Dataset Generator
 
-A hybrid Python/C++ platform combining Unreal Engine 5's photorealistic
-rendering with optimized ML workflows for synthetic training data generation.
+A minimal, modular system for generating synthetic vehicle detection datasets
+using Unreal Engine 5 rendering.
+
+Primary entry point: scripts/generate_v2.py
+Configuration: configs/research_v2.yaml
+
+Target classes: car, truck, bus, motorcycle, bicycle
+Target tasks: 2D object detection, instance identification
 """
 
-__version__ = "0.1.0"
+__version__ = "2.0.0"
 __author__ = "Evan Petersen"
 
-# Import core modules for convenient access
+# Core utilities
 from .config import Config
-from .generator import SyntheticDataGenerator
-from .annotator import AnnotationExporter
+from .ue5_bridge import UE5Bridge
+
+# Research v2 is the primary system
+from .research_v2 import (
+    ResearchConfig,
+    DatasetOrchestrator,
+    SceneController,
+    VehicleSpawner,
+    CameraSystem,
+    AnnotationGenerator,
+    FrameValidator,
+    ResearchLogger,
+)
 
 __all__ = [
+    # Core
     "Config",
-    "SyntheticDataGenerator",
-    "AnnotationExporter",
+    "UE5Bridge",
+    # Research v2 modules
+    "ResearchConfig",
+    "DatasetOrchestrator",
+    "SceneController",
+    "VehicleSpawner",
+    "CameraSystem",
+    "AnnotationGenerator",
+    "FrameValidator",
+    "ResearchLogger",
 ]
 

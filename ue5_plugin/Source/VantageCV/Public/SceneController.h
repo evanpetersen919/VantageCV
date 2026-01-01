@@ -77,3 +77,5 @@ private:
 	/** Get random location within bounds */
 	FVector GetRandomLocation(const FVector& Center, float Radius) const;
 };
+	FVector GetRandomLocation(const FVector& Center, float Radius) const;
+};

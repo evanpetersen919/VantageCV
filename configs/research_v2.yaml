@@ -1,0 +1,138 @@
+# ============================================
+# VantageCV Research v2 Configuration
+# ============================================
+# Minimal research-grade synthetic vehicle dataset generator
+#
+# Prioritizes:
+# - Correctness over completeness
+# - Observability over features
+# - Controlled scope over realism
+# ============================================
+
+experiment_name: "research_v2"
+random_seed: 42
+num_images: 100
+
+# UE5 Connection
+ue5_host: "localhost"
+ue5_port: 9998
+
+# ============================================
+# MODULE 1: Scene Controller
+# ============================================
+scene:
+  # Road parameters - single straight road
+  road_length: 200.0          # meters
+  road_width: 12.0            # meters (3 lanes)
+  lane_width: 4.0             # meters per lane
+  num_lanes: 3
+  lane_positions: [-4.0, 0.0, 4.0]  # Y offsets from center
+  
+  # Lighting - clear day or night only
+  time_of_day: "day"          # "day" or "night"
+  
+  # UE5 level path
+  level_path: "/Game/Research/StraightRoad"
+
+# ============================================
+# MODULE 2: Vehicle Spawner
+# ============================================
+vehicles:
+  # Vehicle count distribution (fixed for v1)
+  # 1 vehicle: 20%, 2-4 vehicles: 50%, 5-6 vehicles: 30%
+  count_distribution:
+    "1": 0.20
+    "2-4": 0.50
+    "5-6": 0.30
+  
+  # Class distribution (weighted)
+  class_weights:
+    car: 0.35
+    truck: 0.25
+    bus: 0.15
+    motorcycle: 0.15
+    bicycle: 0.10
+  
+  # Spawn bounds (meters from camera)
+  spawn_x_min: 10.0           # closest spawn distance
+  spawn_x_max: 100.0          # farthest spawn distance
+  
+  # Per-vehicle randomization
+  scale_jitter: 0.05          # ±5% scale variation
+  position_jitter: 0.5        # meters lateral jitter
+  min_spacing: 5.0            # meters between vehicles
+  
+  # Vehicle assets (update with actual paths)
+  vehicle_assets:
+    car:
+      - "/Game/Vehicles/Car_01"
+      - "/Game/Vehicles/Car_02"
+    truck:
+      - "/Game/Vehicles/Truck_01"
+    bus:
+      - "/Game/Vehicles/Bus_01"
+    motorcycle:
+      - "/Game/Vehicles/Motorcycle_01"
+    bicycle:
+      - "/Game/Vehicles/Bicycle_01"
+
+# ============================================
+# MODULE 3: Camera System
+# ============================================
+camera:
+  # Position (fixed dashcam)
+  height: 1.5                 # meters above ground
+  x_position: 0.0             # at scene origin
+  y_position: 0.0             # centered on road
+  
+  # Orientation (forward-facing)
+  pitch: 0.0
+  yaw: 0.0
+  roll: 0.0
+  
+  # Lens parameters
+  fov: 90.0                   # horizontal FOV degrees
+  fov_jitter: 2.0             # ±degrees variation
+  
+  # Resolution
+  width: 1920
+  height_px: 1080
+
+# ============================================
+# MODULE 4: Render Configuration
+# ============================================
+render:
+  image_format: "png"
+  jpeg_quality: 95
+  aa_samples: 4
+  capture_delay_frames: 2
+
+# ============================================
+# MODULE 5: Annotation Configuration
+# ============================================
+annotation:
+  format: "coco"
+  min_bbox_area: 100          # pixels²
+  min_bbox_dimension: 10      # pixels
+  max_truncation: 0.8         # 80% max out-of-frame
+  track_occlusion: true
+
+# ============================================
+# MODULE 6: Validation Configuration
+# ============================================
+validation:
+  reject_zero_vehicles: true
+  reject_all_truncated: true
+  reject_all_occluded: false  # v1: allow fully occluded
+  require_positive_area: true
+  require_in_frame: true
+
+# ============================================
+# Output Configuration
+# ============================================
+output:
+  base_dir: "data/research_v2"
+  images_subdir: "images"
+  annotations_subdir: "annotations"
+  logs_subdir: "logs"
+  metadata_subdir: "metadata"

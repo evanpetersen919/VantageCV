@@ -35,6 +35,7 @@ ASceneController::ASceneController()
 void ASceneController::BeginPlay()
 {
 	Super::BeginPlay();
+	
 	UE_LOG(LogSceneController, Log, TEXT("SceneController initialized"));
 }
 
