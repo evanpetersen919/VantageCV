@@ -108,13 +108,14 @@ class VehicleSpawnerConfig:
     # Collision avoidance
     min_spacing: float = 5.0     # minimum meters between vehicles
     
-    # UE5 vehicle asset paths (will be populated from level)
-    vehicle_assets: dict[str, list[str]] = field(default_factory=lambda: {
-        "car": ["/Game/Vehicles/Car_01", "/Game/Vehicles/Car_02"],
-        "truck": ["/Game/Vehicles/Truck_01"],
-        "bus": ["/Game/Vehicles/Bus_01"],
-        "motorcycle": ["/Game/Vehicles/Motorcycle_01"],
-        "bicycle": ["/Game/Vehicles/Bicycle_01"],
+    # UE5 pre-placed actor names (visibility-based spawning)
+    # These are actors already in the level that we hide/show and reposition
+    vehicle_actors: dict[str, list[str]] = field(default_factory=lambda: {
+        "car": ["Car_1", "Car_2", "Car_3", "Car_4", "Car_5", "Car_6", "Car_7", "Car_8", "Car_9", "Car_10"],
+        "truck": ["Truck_1", "Truck_2", "Truck_3", "Truck_4"],
+        "bus": ["Bus_1", "Bus_2", "Bus_3"],
+        "motorcycle": ["Motorcycle_1", "Motorcycle_2", "Motorcycle_3"],
+        "bicycle": ["Bike_1", "Bike_2", "Bike_3"],
     })
 
 

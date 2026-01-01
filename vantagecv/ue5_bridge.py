@@ -59,6 +59,9 @@ class UE5Bridge:
         self.scene_controller_path = scene_controller_path or "/Game/main.main:PersistentLevel.BP_SceneController_C_UAID_B48C9D9F0BCA05AF02_1237591175"
         self.data_capture_path = data_capture_path or "/Game/main.main:PersistentLevel.BP_DataCapture_C_0"
         
+        # Level name for actor path construction
+        self.level_name = "automobile"  # Will be used for actor paths
+        
         self._verify_connection()
     
     def _verify_connection(self) -> None:
@@ -191,6 +194,159 @@ class UE5Bridge:
                 f"Failed to set {property_name} on {object_path}: {e}"
             )
     
+    def _get_actor_path(self, actor_name: str) -> str:
+        """
+        Construct full actor path from actor name.
+        
+        Args:
+            actor_name: Simple actor name (e.g., "Car_1")
+            
+        Returns:
+            Full UE5 actor path
+        """
+        return f"/Game/{self.level_name}.{self.level_name}:PersistentLevel.{actor_name}"
+    
+    def set_actor_visibility(self, actor_name: str, visible: bool) -> bool:
+        """
+        Set actor visibility (show/hide).
+        
+        Args:
+            actor_name: Name of actor in level (e.g., "Car_1")
+            visible: True to show, False to hide
+            
+        Returns:
+            True if successful
+        """
+        try:
+            actor_path = self._get_actor_path(actor_name)
+            self.call_function(
+                actor_path,
+                "SetActorHiddenInGame",
+                {"bNewHidden": not visible}  # Hidden is inverse of visible
+            )
+            logger.debug(f"Set visibility: {actor_name} = {visible}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set visibility for {actor_name}: {e}")
+            return False
+    
+    def set_actor_transform(self, actor_name: str, 
+                            location: Dict[str, float],
+                            rotation: Dict[str, float] = None,
+                            scale: float = 1.0) -> bool:
+        """
+        Set actor location, rotation, and scale.
+        
+        Args:
+            actor_name: Name of actor in level (e.g., "Car_1")
+            location: Dict with x, y, z in centimeters
+            rotation: Dict with yaw, pitch, roll in degrees (optional)
+            scale: Uniform scale factor (default 1.0)
+            
+        Returns:
+            True if successful
+        """
+        try:
+            actor_path = self._get_actor_path(actor_name)
+            
+            # Set location
+            self.call_function(
+                actor_path,
+                "K2_SetActorLocation",
+                {
+                    "NewLocation": {
+                        "X": location.get("x", 0),
+                        "Y": location.get("y", 0),
+                        "Z": location.get("z", 0),
+                    },
+                    "bSweep": False,
+                    "bTeleport": True,
+                }
+            )
+            
+            # Set rotation if provided
+            if rotation:
+                self.call_function(
+                    actor_path,
+                    "K2_SetActorRotation",
+                    {
+                        "NewRotation": {
+                            "Yaw": rotation.get("yaw", 0),
+                            "Pitch": rotation.get("pitch", 0),
+                            "Roll": rotation.get("roll", 0),
+                        },
+                        "bTeleportPhysics": True,
+                    }
+                )
+            
+            # Set scale if not 1.0
+            if abs(scale - 1.0) > 0.001:
+                self.call_function(
+                    actor_path,
+                    "SetActorScale3D",
+                    {
+                        "NewScale3D": {"X": scale, "Y": scale, "Z": scale}
+                    }
+                )
+            
+            logger.debug(f"Set transform: {actor_name} at ({location['x']}, {location['y']}, {location['z']})")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to set transform for {actor_name}: {e}")
+            return False
+    
+    def execute_spawn_commands(self, commands: List[Dict[str, Any]]) -> int:
+        """
+        Execute vehicle spawn commands (visibility + transform).
+        
+        Args:
+            commands: List of command dicts from VehicleSpawner.get_ue5_spawn_commands()
+            
+        Returns:
+            Number of successfully executed commands
+        """
+        success_count = 0
+        
+        for cmd in commands:
+            try:
+                if cmd["type"] == "set_visibility":
+                    if self.set_actor_visibility(cmd["actor_name"], cmd["visible"]):
+                        success_count += 1
+                        
+                elif cmd["type"] == "set_transform":
+                    if self.set_actor_transform(
+                        cmd["actor_name"],
+                        cmd["location"],
+                        cmd.get("rotation"),
+                        cmd.get("scale", 1.0)
+                    ):
+                        success_count += 1
+                        
+            except Exception as e:
+                logger.warning(f"Command failed: {cmd} - {e}")
+                
+        logger.info(f"Executed {success_count}/{len(commands)} spawn commands")
+        return success_count
+    
+    def hide_all_vehicles(self, vehicle_actors: Dict[str, List[str]]) -> int:
+        """
+        Hide all vehicle actors.
+        
+        Args:
+            vehicle_actors: Dict mapping class names to actor name lists
+            
+        Returns:
+            Number of actors hidden
+        """
+        count = 0
+        for class_name, actors in vehicle_actors.items():
+            for actor_name in actors:
+                if self.set_actor_visibility(actor_name, False):
+                    count += 1
+        logger.info(f"Hidden {count} vehicle actors")
+        return count
+
     def batch_commands(self, commands: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Execute multiple commands in a single request for better performance.

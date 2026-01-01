@@ -57,7 +57,7 @@ class SpawnedVehicle:
     """Represents a spawned vehicle instance."""
     instance_id: str
     vehicle_class: VehicleClass
-    asset_path: str
+    actor_name: str            # UE5 actor name (e.g., "Car_1")
     transform: VehicleTransform
     scale: float
     color: tuple[int, int, int]  # RGB
@@ -68,7 +68,7 @@ class SpawnedVehicle:
             "instance_id": self.instance_id,
             "class": self.vehicle_class.value,
             "class_id": VehicleClass.get_id(self.vehicle_class),
-            "asset_path": self.asset_path,
+            "actor_name": self.actor_name,
             "transform": self.transform.to_dict(),
             "scale": self.scale,
             "color": {"r": self.color[0], "g": self.color[1], "b": self.color[2]},
@@ -214,23 +214,23 @@ class VehicleSpawner:
         
         return chosen
     
-    def sample_asset(self, vehicle_class: VehicleClass) -> str:
+    def sample_actor(self, vehicle_class: VehicleClass) -> str:
         """
-        Sample asset path for vehicle class.
+        Sample actor name for vehicle class.
         
         Args:
-            vehicle_class: Vehicle class to get asset for
+            vehicle_class: Vehicle class to get actor for
             
         Returns:
-            Asset path string
+            Actor name string (e.g., "Car_1")
         """
-        assets = self.config.vehicle_assets.get(vehicle_class.value, [])
+        actors = self.config.vehicle_actors.get(vehicle_class.value, [])
         
-        if not assets:
+        if not actors:
             # Use placeholder
-            return f"/Game/Vehicles/{vehicle_class.value.title()}_Placeholder"
+            return f"{vehicle_class.value.title()}_Placeholder"
         
-        return self._rng.choice(assets)
+        return self._rng.choice(actors)
     
     def sample_color(self) -> tuple[int, int, int]:
         """Sample a random vehicle color."""
@@ -377,7 +377,7 @@ class VehicleSpawner:
             vehicle = SpawnedVehicle(
                 instance_id=instance_id,
                 vehicle_class=vehicle_class,
-                asset_path=self.sample_asset(vehicle_class),
+                actor_name=self.sample_actor(vehicle_class),
                 transform=transform,
                 scale=self.sample_scale(),
                 color=self.sample_color(),
@@ -439,7 +439,11 @@ class VehicleSpawner:
     
     def get_ue5_spawn_commands(self, vehicles: list[SpawnedVehicle]) -> list[dict]:
         """
-        Convert vehicles to UE5 spawn commands.
+        Convert vehicles to UE5 visibility/positioning commands.
+        
+        Uses visibility-based spawning:
+        1. Hide all vehicle actors
+        2. Show and reposition selected actors
         
         Args:
             vehicles: List of vehicles to spawn
@@ -449,11 +453,25 @@ class VehicleSpawner:
         """
         commands = []
         
+        # First: hide all vehicle actors
+        for class_name, actors in self.config.vehicle_actors.items():
+            for actor_name in actors:
+                commands.append({
+                    "type": "set_visibility",
+                    "actor_name": actor_name,
+                    "visible": False,
+                })
+        
+        # Then: show and position selected vehicles
         for vehicle in vehicles:
             commands.append({
-                "type": "spawn_vehicle",
-                "instance_id": vehicle.instance_id,
-                "asset_path": vehicle.asset_path,
+                "type": "set_visibility",
+                "actor_name": vehicle.actor_name,
+                "visible": True,
+            })
+            commands.append({
+                "type": "set_transform",
+                "actor_name": vehicle.actor_name,
                 "location": {
                     "x": vehicle.transform.x * 100,  # meters to cm
                     "y": vehicle.transform.y * 100,
@@ -465,11 +483,6 @@ class VehicleSpawner:
                     "roll": vehicle.transform.roll,
                 },
                 "scale": vehicle.scale,
-                "color": {
-                    "r": vehicle.color[0],
-                    "g": vehicle.color[1],
-                    "b": vehicle.color[2],
-                },
             })
         
         return commands
@@ -487,10 +500,12 @@ class VehicleSpawner:
         if self.config.spawn_x_min >= self.config.spawn_x_max:
             issues.append("spawn_x_min must be less than spawn_x_max")
         
-        # Check for missing assets
+        # Check for missing actors
         for cls in VehicleClass:
-            if cls.value not in self.config.vehicle_assets:
-                issues.append(f"No assets defined for class {cls.value}")
+            if cls.value not in self.config.vehicle_actors:
+                issues.append(f"No actors defined for class {cls.value}")
+            elif not self.config.vehicle_actors[cls.value]:
+                issues.append(f"Empty actor list for class {cls.value}")
         
         is_valid = len(issues) == 0
         

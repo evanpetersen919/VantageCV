@@ -62,19 +62,36 @@ vehicles:
   position_jitter: 0.5        # meters lateral jitter
   min_spacing: 5.0            # meters between vehicles
   
-  # Vehicle assets (update with actual paths)
-  vehicle_assets:
+  # Pre-placed actor names in UE5 level (visibility-based spawning)
+  vehicle_actors:
     car:
-      - "/Game/Vehicles/Car_01"
-      - "/Game/Vehicles/Car_02"
+      - "Car_1"
+      - "Car_2"
+      - "Car_3"
+      - "Car_4"
+      - "Car_5"
+      - "Car_6"
+      - "Car_7"
+      - "Car_8"
+      - "Car_9"
+      - "Car_10"
     truck:
-      - "/Game/Vehicles/Truck_01"
+      - "Truck_1"
+      - "Truck_2"
+      - "Truck_3"
+      - "Truck_4"
     bus:
-      - "/Game/Vehicles/Bus_01"
+      - "Bus_1"
+      - "Bus_2"
+      - "Bus_3"
     motorcycle:
-      - "/Game/Vehicles/Motorcycle_01"
+      - "Motorcycle_1"
+      - "Motorcycle_2"
+      - "Motorcycle_3"
     bicycle:
-      - "/Game/Vehicles/Bicycle_01"
+      - "Bike_1"
+      - "Bike_2"
+      - "Bike_3"
 
 # ============================================
 # MODULE 3: Camera System
