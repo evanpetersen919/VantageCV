@@ -50,6 +50,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "VantageCV")
 	void SetLightingPreset(const FString& PresetName);
 
+	/** Setup perfect lighting for vehicle capture (bright, uniform, no shadows) */
+	UFUNCTION(BlueprintCallable, Category = "VantageCV")
+	void SetupPerfectLighting();
+
 protected:
 	virtual void BeginPlay() override;
 

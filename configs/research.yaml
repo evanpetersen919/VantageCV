@@ -27,6 +27,8 @@ ue5:
   domain_randomization_path: "/Game/automobile.automobile:PersistentLevel.DomainRandomization_2"
   scene_controller_path: "/Game/automobile.automobile:PersistentLevel.SceneController_1"
   data_capture_path: "/Game/automobile.automobile:PersistentLevel.DataCapture_1"
+  directional_light_path: "/Game/automobile.automobile:PersistentLevel.DirectionalLight_4"
+  sky_light_path: "/Game/automobile.automobile:PersistentLevel.SkyLight_2"
 
 #------------------------------------------------------------------------------
 # Scene Sampling Configuration

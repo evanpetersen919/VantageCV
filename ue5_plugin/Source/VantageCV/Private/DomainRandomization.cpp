@@ -238,11 +238,12 @@ void ADomainRandomization::RandomizeLighting()
 
 	UDirectionalLightComponent* LightComp = Sun->GetComponent();
 
-	// Randomize intensity
-	float Intensity = GetRandomFloat(
-		Config.Lighting.IntensityRange.X,
-		Config.Lighting.IntensityRange.Y);
+	// Randomize intensity - ENFORCE MINIMUM 50.0 for proper capture exposure
+	float MinIntensity = FMath::Max(Config.Lighting.IntensityRange.X, 50.0f);
+	float MaxIntensity = FMath::Max(Config.Lighting.IntensityRange.Y, 100.0f);
+	float Intensity = GetRandomFloat(MinIntensity, MaxIntensity);
 	LightComp->SetIntensity(Intensity);
+	UE_LOG(LogDomainRandomization, Log, TEXT("Set DirectionalLight intensity to %.1f"), Intensity);
 
 	// Randomize sun angle (elevation and azimuth)
 	float Elevation = GetRandomFloat(
@@ -888,7 +889,7 @@ int32 ADomainRandomization::GetVisibleVehicleCount()
 		}
 	}
 	
-	UE_LOG(LogVantageCV, Log, TEXT("GetVisibleVehicleCount called: %d vehicles visible"), VisibleCount);
+	UE_LOG(LogDomainRandomization, Log, TEXT("GetVisibleVehicleCount called: %d vehicles visible"), VisibleCount);
 	return VisibleCount;
 }
 

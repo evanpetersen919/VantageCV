@@ -40,29 +40,33 @@ ADataCapture::ADataCapture()
 	// Configure capture settings
 	if (CaptureComponent)
 	{
+		// Use FINAL output - exactly what viewport shows
 		CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 		CaptureComponent->bCaptureEveryFrame = false;
 		CaptureComponent->bCaptureOnMovement = false;
 		
 		//==========================================================================
-		// OPTIMIZED PHOTOREALISTIC SETTINGS FOR OBJECT DETECTION TRAINING
+		// MATCH VIEWPORT OUTPUT
 		//==========================================================================
 		
-		// Enable all post-processing for maximum realism
+		// Enable all rendering features
 		CaptureComponent->ShowFlags.SetPostProcessing(true);
-		CaptureComponent->ShowFlags.SetMotionBlur(false);  // Off for sharp training images
-		CaptureComponent->ShowFlags.SetBloom(true);        // Subtle glow on bright areas
-		CaptureComponent->ShowFlags.SetTemporalAA(true);   // Smooth edges
-		CaptureComponent->ShowFlags.SetAmbientOcclusion(true);  // Contact shadows
-		CaptureComponent->ShowFlags.SetEyeAdaptation(false);    // Manual exposure
+		CaptureComponent->ShowFlags.SetMotionBlur(false);
+		CaptureComponent->ShowFlags.SetBloom(true);
+		CaptureComponent->ShowFlags.SetTemporalAA(true);
+		CaptureComponent->ShowFlags.SetAmbientOcclusion(true);
+		CaptureComponent->ShowFlags.SetEyeAdaptation(true);
+		CaptureComponent->ShowFlags.SetAtmosphere(true);
+		CaptureComponent->ShowFlags.SetSkyLighting(true);
+		CaptureComponent->ShowFlags.SetLighting(true);
+		CaptureComponent->ShowFlags.SetGlobalIllumination(true);
+		CaptureComponent->ShowFlags.SetTonemapper(true);
+		CaptureComponent->ShowFlags.SetColorGrading(true);
 		
-		// EXPOSURE - Bright outdoor scenes
-		CaptureComponent->PostProcessSettings.bOverride_AutoExposureMethod = true;
-		CaptureComponent->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
-		CaptureComponent->PostProcessSettings.bOverride_AutoExposureBias = true;
-		CaptureComponent->PostProcessSettings.AutoExposureBias = 8.0f;  // Very bright for visibility
+		// Use scene's post-process settings, not our overrides
+		CaptureComponent->PostProcessBlendWeight = 0.0f;
 		
-		// BLOOM - Subtle for realism
+		// BLOOM - Subtle
 		CaptureComponent->PostProcessSettings.bOverride_BloomIntensity = true;
 		CaptureComponent->PostProcessSettings.BloomIntensity = 0.2f;
 		
@@ -133,9 +137,9 @@ void ADataCapture::SetResolution(int32 Width, int32 Height)
 		return;
 	}
 
-	// Create RGB render target with high-quality RGBA8 format
+	// Create RGB render target with sRGB format for proper gamma
 	RenderTarget = NewObject<UTextureRenderTarget2D>(this);
-	RenderTarget->RenderTargetFormat = RTF_RGBA8;
+	RenderTarget->RenderTargetFormat = RTF_RGBA8_SRGB;  // Use sRGB format for correct brightness!
 	RenderTarget->ClearColor = FLinearColor::Black;
 	RenderTarget->bAutoGenerateMips = false;
 	RenderTarget->InitAutoFormat(Width, Height);
@@ -163,7 +167,7 @@ bool ADataCapture::CaptureFrame(const FString& OutputPath, int32 Width, int32 He
 {
 	UE_LOG(LogDataCapture, Log, TEXT("CaptureFrame called: %s (%dx%d)"), *OutputPath, Width, Height);
 	
-	// Ensure CaptureComponent exists - use the one from constructor if available
+	// Ensure CaptureComponent exists
 	if (!CaptureComponent)
 	{
 		UE_LOG(LogDataCapture, Warning, TEXT("CaptureComponent was null, creating new one"));
@@ -172,36 +176,45 @@ bool ADataCapture::CaptureFrame(const FString& OutputPath, int32 Width, int32 He
 		CaptureComponent->AttachToComponent(GetRootComponent(), FAttachmentTransformRules::SnapToTargetIncludingScale);
 	}
 	
-	// Configure capture settings
+	//==========================================================================
+	// CRITICAL FIX: SceneCaptureComponent2D doesn't share viewport exposure!
+	// Viewport adapts over time, but each capture starts fresh (dark)
+	// MUST force bright exposure with overrides
+	//==========================================================================
 	CaptureComponent->bCaptureEveryFrame = false;
 	CaptureComponent->bCaptureOnMovement = false;
-	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalToneCurveHDR;  // Use tonemapped HDR for brightness
 	
-	// Apply optimized photorealistic settings
+	// Enable essential rendering features only
 	CaptureComponent->ShowFlags.SetPostProcessing(true);
+	CaptureComponent->ShowFlags.SetLighting(true);
+	CaptureComponent->ShowFlags.SetTonemapper(true);  // Keep tonemapper for proper range mapping
+	CaptureComponent->ShowFlags.SetEyeAdaptation(false);  // DISABLE - manual control
+	CaptureComponent->ShowFlags.SetColorGrading(false);  // DISABLE - can darken
+	CaptureComponent->ShowFlags.SetBloom(false);  // DISABLE - not needed
+	CaptureComponent->ShowFlags.SetAtmosphere(true);
+	CaptureComponent->ShowFlags.SetSkyLighting(true);
+	CaptureComponent->ShowFlags.SetAmbientOcclusion(false);  // DISABLE - darkens shadows
 	CaptureComponent->ShowFlags.SetMotionBlur(false);
-	CaptureComponent->ShowFlags.SetBloom(true);
-	CaptureComponent->ShowFlags.SetTemporalAA(true);
-	CaptureComponent->ShowFlags.SetAmbientOcclusion(true);
-	CaptureComponent->ShowFlags.SetEyeAdaptation(false);
+	CaptureComponent->ShowFlags.SetTemporalAA(false);
 	
-	// Exposure
+	// CRITICAL: Force MAXIMUM brightness with manual exposure
+	CaptureComponent->bOverride_CustomNearClippingPlane = false;
+	CaptureComponent->PostProcessBlendWeight = 1.0f;  // 100% our settings
+	
 	CaptureComponent->PostProcessSettings.bOverride_AutoExposureMethod = true;
-	CaptureComponent->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+	CaptureComponent->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;  // MANUAL for full control
+	
 	CaptureComponent->PostProcessSettings.bOverride_AutoExposureBias = true;
-	CaptureComponent->PostProcessSettings.AutoExposureBias = 4.0f;
-	CaptureComponent->PostProcessSettings.bOverride_BloomIntensity = true;
-	CaptureComponent->PostProcessSettings.BloomIntensity = 0.2f;
+	CaptureComponent->PostProcessSettings.AutoExposureBias = 15.0f;  // EXTREME brightness (32x multiplier)
 	
-	// Fill in shadows with indirect lighting
-	CaptureComponent->PostProcessSettings.bOverride_IndirectLightingIntensity = true;
-	CaptureComponent->PostProcessSettings.IndirectLightingIntensity = 2.0f;
+	CaptureComponent->PostProcessSettings.bOverride_AutoExposureMinBrightness = true;
+	CaptureComponent->PostProcessSettings.AutoExposureMinBrightness = 10.0f;  // Force very bright minimum
 	
-	// Reduce harsh contrast
-	CaptureComponent->PostProcessSettings.bOverride_ColorContrast = true;
-	CaptureComponent->PostProcessSettings.ColorContrast = FVector4(0.95f, 0.95f, 0.95f, 1.0f);
+	CaptureComponent->PostProcessSettings.bOverride_AutoExposureMaxBrightness = true;
+	CaptureComponent->PostProcessSettings.AutoExposureMaxBrightness = 50.0f;  // Allow extreme brightness
 
-	// Create or update render target
+	// Create render target (RGBA8 for standard 8-bit output)
 	if (!RenderTarget || RenderTarget->SizeX != Width || RenderTarget->SizeY != Height)
 	{
 		UE_LOG(LogDataCapture, Log, TEXT("Creating render target %dx%d"), Width, Height);
@@ -585,7 +598,9 @@ bool ADataCapture::SaveRenderTargetToFile(UTextureRenderTarget2D* InRenderTarget
 	
 	UE_LOG(LogDataCapture, Log, TEXT("Reading %dx%d pixels..."), InRenderTarget->SizeX, InRenderTarget->SizeY);
 	
+	// Apply gamma correction when reading to brighten the output
 	FReadSurfaceDataFlags ReadFlags(RCM_UNorm);
+	ReadFlags.SetLinearToGamma(true);  // Apply 2.2 gamma curve
 	if (!RTResource->ReadPixels(Pixels, ReadFlags))
 	{
 		UE_LOG(LogDataCapture, Error, TEXT("Failed to read pixels from render target"));
@@ -628,5 +643,6 @@ bool ADataCapture::ReadRenderTargetPixels(UTextureRenderTarget2D* InRenderTarget
 	OutPixels.SetNum(InRenderTarget->SizeX * InRenderTarget->SizeY);
 	
 	FReadSurfaceDataFlags ReadPixelFlags(RCM_UNorm);
+	ReadPixelFlags.SetLinearToGamma(true);  // Apply gamma correction
 	return RTResource->ReadPixels(OutPixels, ReadPixelFlags);
 }

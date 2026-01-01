@@ -12,10 +12,12 @@
 #include "Engine/DirectionalLight.h"
 #include "Engine/PointLight.h"
 #include "Engine/SpotLight.h"
+#include "Engine/SkyLight.h"
 #include "Engine/StaticMeshActor.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/SpotLightComponent.h"
+#include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Camera/CameraActor.h"
@@ -345,4 +347,85 @@ FVector ASceneController::GetRandomLocation(const FVector& Center, float Radius)
 		RandomDistance * FMath::Sin(FMath::DegreesToRadians(RandomAngle)),
 		0.0f
 	);
+}
+void ASceneController::SetupPerfectLighting()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		UE_LOG(LogSceneController, Error, TEXT("SetupPerfectLighting: World is null"));
+		return;
+	}
+
+	// Find or create main directional light (sun)
+	ADirectionalLight* SunLight = nullptr;
+	for (TActorIterator<ADirectionalLight> It(World); It; ++It)
+	{
+		SunLight = *It;
+		break;  // Use first directional light found
+	}
+
+	if (!SunLight)
+	{
+		// Create new directional light if none exists
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Name = FName(TEXT("VantageCV_Sun"));
+		SunLight = World->SpawnActor<ADirectionalLight>(FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
+		UE_LOG(LogSceneController, Log, TEXT("Created new directional light: VantageCV_Sun"));
+	}
+
+	if (SunLight)
+	{
+		UDirectionalLightComponent* LightComp = SunLight->GetComponent();
+		if (LightComp)
+		{
+			// PERFECT LIGHTING SETTINGS - EXTREMELY BRIGHT for captures
+			LightComp->SetIntensity(50.0f);  // MAXIMUM brightness for dark captures
+			LightComp->SetLightColor(FLinearColor::White);  // Pure white
+			LightComp->SetTemperature(6500.0f);  // Daylight
+			
+			// Optimal sun angle: 45 degrees elevation, front lighting
+			SunLight->SetActorRotation(FRotator(-45.0f, 0.0f, 0.0f));
+			
+			// Soft shadows for realism
+			LightComp->SetCastShadows(true);
+			LightComp->DynamicShadowDistanceMovableLight = 20000.0f;
+			LightComp->CascadeDistributionExponent = 2.0f;
+			
+			UE_LOG(LogSceneController, Log, TEXT("Configured sun: Intensity=10.0, Angle=45deg, White 6500K"));
+		}
+	}
+
+	// Find or create sky light for ambient fill
+	ASkyLight* SkyLight = nullptr;
+	for (TActorIterator<ASkyLight> It(World); It; ++It)
+	{
+		SkyLight = *It;
+		break;
+	}
+
+	if (!SkyLight)
+	{
+		// Create sky light if missing
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Name = FName(TEXT("VantageCV_SkyLight"));
+		SkyLight = World->SpawnActor<ASkyLight>(FVector::ZeroVector, FRotator::ZeroRotator, SpawnParams);
+		UE_LOG(LogSceneController, Log, TEXT("Created new sky light: VantageCV_SkyLight"));
+	}
+
+	if (SkyLight)
+	{
+		USkyLightComponent* SkyComp = SkyLight->GetLightComponent();
+		if (SkyComp)
+		{
+			// Bright ambient lighting to eliminate dark shadows
+			SkyComp->SetIntensity(2.0f);  // Strong ambient
+			SkyComp->SetLightColor(FLinearColor(0.9f, 0.95f, 1.0f));  // Slightly blue sky
+			SkyComp->RecaptureSky();
+			
+			UE_LOG(LogSceneController, Log, TEXT("Configured sky light: Intensity=2.0, Blue tint"));
+		}
+	}
+
+	UE_LOG(LogSceneController, Log, TEXT("Perfect lighting setup complete - bright uniform illumination"));
 }

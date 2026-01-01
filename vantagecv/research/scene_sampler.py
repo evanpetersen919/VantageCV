@@ -219,10 +219,10 @@ class SceneSampler:
         }
         
         self.time_weights = {
-            TimeOfDay.NOON: 0.4,
-            TimeOfDay.DAWN: 0.2,
-            TimeOfDay.DUSK: 0.2,
-            TimeOfDay.NIGHT: 0.2
+            TimeOfDay.NOON: 1.0,      # Force NOON only for bright images
+            TimeOfDay.DAWN: 0.0,
+            TimeOfDay.DUSK: 0.0,
+            TimeOfDay.NIGHT: 0.0
         }
         
         self.weather_weights = {

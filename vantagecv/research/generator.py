@@ -91,6 +91,15 @@ class ResearchDataGenerator:
             logger.error(f"Failed to connect to UE5: {e}")
             raise
         
+        # Setup perfect lighting once at start
+        try:
+            scene_controller = ue5_config.get('scene_controller_path')
+            if scene_controller:
+                self.ue5_bridge.call_function(scene_controller, 'SetupPerfectLighting')
+                logger.info("Perfect lighting configured - bright uniform illumination")
+        except Exception as e:
+            logger.warning(f"Could not setup lighting: {e}")
+        
         # Get image dimensions
         self.image_width = config.get('image_width', 1920)
         self.image_height = config.get('image_height', 1080)
@@ -293,6 +302,9 @@ class ResearchDataGenerator:
         """Apply scene randomization to UE5."""
         dr_config = self.config.get('domain_randomization', {})
         
+        # NOTE: Sun angle setting removed - was causing API errors
+        # Lighting is controlled by UE5 level setup
+        
         # 1. Apply domain randomization
         if self.domain_rand_path:
             try:
@@ -305,6 +317,7 @@ class ResearchDataGenerator:
                 logger.warning(f"Domain randomization failed: {e}")
         
         # 2. Randomize lighting based on scene params
+        # FIXED: Use proper intensity values (50-100), NOT shadow_intensity (0-1)!
         if self.scene_controller_path:
             try:
                 lighting = scene_params.get('lighting', {})
@@ -312,8 +325,8 @@ class ResearchDataGenerator:
                     self.scene_controller_path,
                     "RandomizeLighting",
                     {
-                        "MinIntensity": lighting.get('shadow_intensity', 0.5) * 0.8,
-                        "MaxIntensity": lighting.get('shadow_intensity', 0.5) * 1.2,
+                        "MinIntensity": 50.0,  # BRIGHT minimum - was shadow_intensity * 0.8 (bug!)
+                        "MaxIntensity": 100.0,  # BRIGHT maximum - was shadow_intensity * 1.2 (bug!)
                         "MinTemperature": 4500.0 if lighting.get('time_of_day') == 'noon' else 3500.0,
                         "MaxTemperature": 7500.0 if lighting.get('time_of_day') == 'noon' else 5500.0
                     }

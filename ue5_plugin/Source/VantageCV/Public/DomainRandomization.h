@@ -169,9 +169,9 @@ struct FLightingRandomizationConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bEnabled = true;
 
-	/** Sun intensity range (lux) */
+	/** Sun intensity range (lux) - MUST BE HIGH for proper capture exposure */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FVector2D IntensityRange = FVector2D(1.0f, 15.0f);
+	FVector2D IntensityRange = FVector2D(50.0f, 100.0f);
 
 	/** Sun elevation angle range (degrees) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)

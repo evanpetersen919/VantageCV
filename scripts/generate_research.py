@@ -131,12 +131,11 @@ Examples:
         logger.error(f"Failed to load config: {e}")
         sys.exit(1)
     
-    # Set output directory
+    # Set output directory - use fixed "test" folder
     if args.output:
         output_dir = args.output
     else:
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_dir = f"data/synthetic/research_{timestamp}"
+        output_dir = "data/synthetic/test"
     
     # Print banner
     print("\n" + "="*70)
