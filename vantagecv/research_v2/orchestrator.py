@@ -403,6 +403,9 @@ class DatasetOrchestrator:
                 self.logger.error("Frame capture failed", image_path=str(image_path))
                 return False
             
+            # Step 5: Hide all vehicles after capture
+            self.ue5.hide_all_vehicles(self.config.vehicles.vehicle_actors)
+            
             self.logger.debug(
                 "UE5 frame executed",
                 vehicle_count=len(vehicles),
@@ -412,6 +415,11 @@ class DatasetOrchestrator:
             return True
             
         except Exception as e:
+            # Ensure vehicles are hidden even on error
+            try:
+                self.ue5.hide_all_vehicles(self.config.vehicles.vehicle_actors)
+            except:
+                pass
             self.logger.error(
                 "UE5 execution failed",
                 error=str(e),

@@ -340,15 +340,7 @@ class UE5Bridge:
                     }
                 )
             
-            # Set scale if not 1.0
-            if abs(scale - 1.0) > 0.001:
-                self.call_function(
-                    actor_path,
-                    "SetActorScale3D",
-                    {
-                        "NewScale3D": {"X": scale, "Y": scale, "Z": scale}
-                    }
-                )
+            # Note: We don't modify scale - vehicles have their actual UE5 dimensions
             
             logger.debug(f"Set transform: {actor_name} at ({location['x']}, {location['y']}, {location['z']})")
             return True
@@ -407,6 +399,36 @@ class UE5Bridge:
                     count += 1
         logger.info(f"Hidden {count} vehicle actors")
         return count
+    
+    def get_actor_bounds(self, actor_name: str) -> Optional[Dict[str, float]]:
+        """
+        Get actor bounding box dimensions in centimeters.
+        
+        Args:
+            actor_name: Name of actor in level
+            
+        Returns:
+            Dict with length, width, height in cm, or None if failed
+        """
+        try:
+            actor_path = self._get_actor_path(actor_name)
+            result = self.call_function(
+                actor_path,
+                "GetActorBounds",
+                {"bOnlyCollidingComponents": False}
+            )
+            
+            # GetActorBounds returns Origin and BoxExtent
+            # BoxExtent is half the size in each dimension
+            extent = result.get("BoxExtent", {})
+            return {
+                "length": extent.get("X", 0) * 2,  # Full length (X axis)
+                "width": extent.get("Y", 0) * 2,   # Full width (Y axis) 
+                "height": extent.get("Z", 0) * 2,  # Full height (Z axis)
+            }
+        except Exception as e:
+            logger.warning(f"Failed to get bounds for {actor_name}: {e}")
+            return None
 
     def batch_commands(self, commands: List[Dict[str, Any]]) -> Dict[str, Any]:
         """

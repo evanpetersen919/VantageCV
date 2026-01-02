@@ -108,7 +108,6 @@ class VehicleSpawnerConfig:
     world_offset_z: float = 0.0      # cm - Ground level (vehicles sit on ground)
     
     # Per-vehicle randomization
-    scale_jitter: float = 0.05   # ±5% scale variation
     position_jitter: float = 0.5  # meters lateral jitter within lane
     
     # Collision avoidance

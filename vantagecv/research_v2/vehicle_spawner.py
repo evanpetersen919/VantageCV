@@ -15,14 +15,15 @@ Per-vehicle randomization:
 - Class (weighted)
 - Model variant (if available)
 - Color
-- Scale jitter ±5%
 - Position offset within lane
 - Static only (no motion in v1)
+
+Note: Vehicles use their actual UE5 dimensions (no scale modification)
 
 Logging (REQUIRED):
 - Spawn request received
 - Vehicle count sampled
-- For each vehicle: instance_id, class, world transform, scale
+- For each vehicle: instance_id, class, world transform, dimensions
 - Spawn success / failure reason
 """
 
@@ -53,13 +54,24 @@ class VehicleTransform:
 
 
 @dataclass
+class VehicleDimensions:
+    """Actual vehicle dimensions in meters."""
+    length: float  # X axis (front to back)
+    width: float   # Y axis (side to side)
+    height: float  # Z axis (bottom to top)
+    
+    def to_dict(self) -> dict:
+        return {"length": self.length, "width": self.width, "height": self.height}
+
+
+@dataclass
 class SpawnedVehicle:
     """Represents a spawned vehicle instance."""
     instance_id: str
     vehicle_class: VehicleClass
-    actor_name: str            # UE5 actor name (e.g., "Car_1")
+    actor_name: str            # UE5 actor name (e.g., "StaticMeshActor_4")
     transform: VehicleTransform
-    scale: float
+    dimensions: VehicleDimensions  # Actual size in meters
     color: tuple[int, int, int]  # RGB
     lane_index: int
     
@@ -70,7 +82,7 @@ class SpawnedVehicle:
             "class_id": VehicleClass.get_id(self.vehicle_class),
             "actor_name": self.actor_name,
             "transform": self.transform.to_dict(),
-            "scale": self.scale,
+            "dimensions": self.dimensions.to_dict(),
             "color": {"r": self.color[0], "g": self.color[1], "b": self.color[2]},
             "lane_index": self.lane_index,
         }
@@ -151,7 +163,6 @@ class VehicleSpawner:
         
         self.logger.log_init(
             spawn_x_range=(config.spawn_x_min, config.spawn_x_max),
-            scale_jitter=config.scale_jitter,
             position_jitter=config.position_jitter,
             min_spacing=config.min_spacing,
             class_weights=config.class_weights,
@@ -236,15 +247,28 @@ class VehicleSpawner:
         """Sample a random vehicle color."""
         return self._rng.choice(self.VEHICLE_COLORS)
     
-    def sample_scale(self) -> float:
+    # Default vehicle dimensions in meters (will be overridden by UE5 actual bounds)
+    DEFAULT_DIMENSIONS = {
+        VehicleClass.CAR: VehicleDimensions(4.5, 1.8, 1.5),
+        VehicleClass.TRUCK: VehicleDimensions(7.0, 2.5, 3.0),
+        VehicleClass.BUS: VehicleDimensions(12.0, 2.5, 3.5),
+        VehicleClass.MOTORCYCLE: VehicleDimensions(2.2, 0.8, 1.2),
+        VehicleClass.BICYCLE: VehicleDimensions(1.8, 0.6, 1.1),
+    }
+    
+    def get_vehicle_dimensions(self, actor_name: str, vehicle_class: VehicleClass) -> VehicleDimensions:
         """
-        Sample scale with jitter.
+        Get vehicle dimensions - from UE5 if available, else use defaults.
         
+        Args:
+            actor_name: UE5 actor name
+            vehicle_class: Vehicle class for fallback
+            
         Returns:
-            Scale factor (1.0 ± jitter)
+            VehicleDimensions in meters
         """
-        jitter = self.config.scale_jitter
-        return 1.0 + self._rng.uniform(-jitter, jitter)
+        # Use default dimensions (actual UE5 bounds can be queried at runtime)
+        return self.DEFAULT_DIMENSIONS.get(vehicle_class, VehicleDimensions(4.0, 2.0, 1.5))
     
     def sample_position(
         self,
@@ -373,13 +397,14 @@ class VehicleSpawner:
             
             # Create vehicle instance
             instance_id = f"vehicle_{uuid.uuid4().hex[:8]}"
+            actor_name = self.sample_actor(vehicle_class)
             
             vehicle = SpawnedVehicle(
                 instance_id=instance_id,
                 vehicle_class=vehicle_class,
-                actor_name=self.sample_actor(vehicle_class),
+                actor_name=actor_name,
                 transform=transform,
-                scale=self.sample_scale(),
+                dimensions=self.get_vehicle_dimensions(actor_name, vehicle_class),
                 color=self.sample_color(),
                 lane_index=lane_index,
             )
@@ -393,7 +418,7 @@ class VehicleSpawner:
                 instance_id=instance_id,
                 vehicle_class=vehicle_class.value,
                 position={"x": transform.x, "y": transform.y, "z": transform.z},
-                scale=vehicle.scale,
+                dimensions={"l": vehicle.dimensions.length, "w": vehicle.dimensions.width, "h": vehicle.dimensions.height},
                 lane_index=lane_index,
             )
         
@@ -494,7 +519,7 @@ class VehicleSpawner:
                     "pitch": vehicle.transform.pitch,
                     "roll": vehicle.transform.roll,
                 },
-                "scale": vehicle.scale,
+                # No scale - vehicles use their actual UE5 dimensions
             })
         
         return commands

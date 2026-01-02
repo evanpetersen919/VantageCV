@@ -296,13 +296,10 @@ class AnnotationGenerator:
         Returns:
             InstanceAnnotation
         """
-        # Get vehicle dimensions
-        length, width, height = VEHICLE_DIMENSIONS_3D[vehicle.vehicle_class]
-        
-        # Apply scale
-        length *= vehicle.scale
-        width *= vehicle.scale
-        height *= vehicle.scale
+        # Get vehicle dimensions from the vehicle instance (actual UE5 dimensions)
+        length = vehicle.dimensions.length
+        width = vehicle.dimensions.width
+        height = vehicle.dimensions.height
         
         # Project 3D bbox to 2D
         x = vehicle.transform.x
