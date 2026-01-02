@@ -448,8 +448,8 @@ bool AResearchController::SaveRenderTargetToDisk(const FString& FilePath)
     }
 
     // Get compressed data
-    TArray64<uint8> CompressedData;
-    if (!ImageWrapper->GetCompressed(CompressedData))
+    TArray64<uint8> CompressedData = ImageWrapper->GetCompressed(100);
+    if (CompressedData.Num() == 0)
     {
         return false;
     }

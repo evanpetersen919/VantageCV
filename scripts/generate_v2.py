@@ -288,20 +288,22 @@ def test_ue5_connection(config: ResearchConfig, port: int) -> int:
         else:
             print("  ⚠ No bounding boxes generated (may need visible vehicles)")
         
+        # Automatic cleanup: hide all vehicles
         print()
-        print("Press Enter to hide all vehicles and exit...")
+        print("Cleaning up vehicles...")
         try:
-            input()
-        except (KeyboardInterrupt, EOFError):
-            print("\nSkipping cleanup (interrupted)")
-            return 0
-        
-        # Cleanup: hide all vehicles
-        try:
-            bridge.hide_all_vehicles(vehicle_actors)
-            print("Vehicles hidden. Test complete.")
+            # Try authoritative cleanup first
+            hidden, still_visible = bridge.authoritative_vehicle_cleanup(
+                "/Game/automobile.automobile:PersistentLevel.DomainRandomization_1"
+            )
+            print(f"  ✓ Authoritative cleanup: {hidden} vehicles hidden, {still_visible} still visible")
         except Exception as e:
-            print(f"Warning: Could not hide vehicles (UE5 may be closed): {e}")
+            # Fallback to simple hide
+            bridge.hide_all_vehicles(vehicle_actors)
+            print(f"  ✓ Vehicles hidden (fallback method)")
+        
+        print()
+        print("Test complete!")
         return 0
     else:
         print("FAILED - Check UE5 setup")
