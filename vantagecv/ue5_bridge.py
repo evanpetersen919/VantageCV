@@ -55,9 +55,9 @@ class UE5Bridge:
         self.base_url = f"http://{host}:{port}/remote/object"
         self.batch_url = f"http://{host}:{port}/remote/batch"
         
-        # Store actor paths (can be configured per project)
-        self.scene_controller_path = scene_controller_path or "/Game/main.main:PersistentLevel.BP_SceneController_C_UAID_B48C9D9F0BCA05AF02_1237591175"
-        self.data_capture_path = data_capture_path or "/Game/main.main:PersistentLevel.BP_DataCapture_C_0"
+        # Store actor paths (auto-discovered from automobile level)
+        self.scene_controller_path = scene_controller_path or "/Game/automobile.automobile:PersistentLevel.SceneController_1"
+        self.data_capture_path = data_capture_path or "/Game/automobile.automobile:PersistentLevel.DataCapture_1"
         
         # Level name for actor path construction
         self.level_name = "automobile"  # Will be used for actor paths
@@ -85,6 +85,24 @@ class UE5Bridge:
                 f"Failed to connect to UE5 at {self.host}:{self.port}. "
                 f"Ensure UE5 is running with Remote Control plugin enabled. Error: {e}"
             )
+    
+    def test_connection(self) -> bool:
+        """
+        Test if connection to UE5 Remote Control API is working.
+        
+        Returns:
+            True if connection is working, False otherwise
+        """
+        try:
+            response = requests.put(
+                f"http://{self.host}:{self.port}/remote/object/call",
+                json={"objectPath": "", "functionName": ""},
+                timeout=5
+            )
+            # Any response means server is alive
+            return True
+        except requests.exceptions.RequestException:
+            return False
     
     def call_function(self, object_path: str, function_name: str, 
                       parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -124,6 +142,49 @@ class UE5Bridge:
             
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"Network error calling {function_name}: {e}") from e
+    
+    def set_capture_camera(self, x: float, y: float, z: float, 
+                           pitch: float = 0, yaw: float = 0, roll: float = 0,
+                           fov: float = 90.0) -> bool:
+        """
+        Set the DataCapture camera position and rotation.
+        
+        Args:
+            x, y, z: Camera position in centimeters
+            pitch, yaw, roll: Camera rotation in degrees
+            fov: Field of view in degrees
+            
+        Returns:
+            True if successful
+        """
+        try:
+            # Set position
+            self.call_function(
+                self.data_capture_path,
+                "K2_SetActorLocation",
+                {
+                    "NewLocation": {"X": x, "Y": y, "Z": z},
+                    "bSweep": False,
+                    "bTeleport": True,
+                }
+            )
+            
+            # Set rotation
+            self.call_function(
+                self.data_capture_path,
+                "K2_SetActorRotation",
+                {
+                    "NewRotation": {"Pitch": pitch, "Yaw": yaw, "Roll": roll},
+                    "bTeleportPhysics": True,
+                }
+            )
+            
+            logger.debug(f"Camera set: pos=({x}, {y}, {z}) rot=({pitch}, {yaw}, {roll}) fov={fov}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to set camera: {e}")
+            return False
     
     def capture_frame(self, output_path: str, width: int = 1920, height: int = 1080) -> bool:
         """
@@ -451,29 +512,45 @@ class UE5Bridge:
         )
         logger.debug(f"Spawned {count} objects from classes: {object_classes}")
     
-    def generate_annotations(self) -> Dict[str, Any]:
+    def generate_annotations(self, visible_actors: List[str] = None) -> Dict[str, Any]:
         """
-        Generate annotations for the current scene.
+        Generate bounding box annotations for visible vehicles.
         
+        Args:
+            visible_actors: List of actor names that are currently visible
+            
         Returns:
-            Dictionary containing bounding boxes, segmentation masks, etc.
+            Dictionary containing bounding boxes
             
         Raises:
             RuntimeError: If annotation generation fails
         """
-        result = self.call_function(
-            "/Game/VantageCV/DataCapture",
-            "GenerateBoundingBoxes",
-            {}
-        )
-        
-        annotations = result.get("ReturnValue", [])
-        logger.debug(f"Generated {len(annotations)} annotations")
-        
-        return {
-            "bounding_boxes": annotations,
-            "timestamp": time.time()
-        }
+        try:
+            # Call GenerateBoundingBoxes on DataCapture actor
+            # Pass empty array - it will find all visible StaticMeshActors
+            result = self.call_function(
+                self.data_capture_path,
+                "GenerateBoundingBoxes",
+                {"TargetTags": []}
+            )
+            
+            # Parse the JSON string returned
+            json_str = result.get("ReturnValue", "{}")
+            if isinstance(json_str, str):
+                import json
+                annotations = json.loads(json_str)
+            else:
+                annotations = json_str
+            
+            logger.debug(f"Generated annotations: {annotations}")
+            
+            return {
+                "bounding_boxes": annotations.get("annotations", []),
+                "timestamp": time.time()
+            }
+        except Exception as e:
+            logger.error(f"Failed to generate annotations: {e}")
+            return {"bounding_boxes": [], "timestamp": time.time()}
     
     def reset_scene(self) -> None:
         """Reset scene to default state."""

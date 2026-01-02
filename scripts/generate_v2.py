@@ -106,14 +106,14 @@ Examples:
     parser.add_argument(
         "--simulation",
         action="store_true",
-        default=True,
-        help="Run in simulation mode (no UE5 connection)",
+        default=False,
+        help="Force simulation mode even with --ue5 flag",
     )
     
     parser.add_argument(
         "--ue5",
         action="store_true",
-        help="Connect to UE5 for actual rendering",
+        help="Connect to UE5 for actual rendering (default is simulation mode)",
     )
     
     parser.add_argument(
@@ -233,6 +233,39 @@ def test_ue5_connection(config: ResearchConfig, port: int) -> int:
         print("SUCCESS - UE5 integration is working!")
         print()
         print("You should see 3 vehicles positioned on the road in UE5.")
+        print()
+        
+        # Test frame capture
+        print("Testing frame capture...")
+        import tempfile
+        test_path = Path(tempfile.gettempdir()) / "vantagecv_test_capture.png"
+        
+        # Set camera position before capture (at world offset, looking forward)
+        bridge.set_capture_camera(
+            x=config.vehicles.world_offset_x,
+            y=config.vehicles.world_offset_y,
+            z=config.camera.height * 100,  # meters to cm
+            pitch=0, yaw=0, roll=0,
+            fov=config.camera.fov
+        )
+        
+        if bridge.capture_frame(str(test_path), 1920, 1080):
+            print(f"  ✓ Frame captured to: {test_path}")
+        else:
+            print("  ⚠ Frame capture failed (DataCapture actor may need setup)")
+        
+        # Test annotation generation
+        print("Testing annotation generation...")
+        annotations = bridge.generate_annotations()
+        bbox_count = len(annotations.get("bounding_boxes", []))
+        if bbox_count > 0:
+            print(f"  ✓ Generated {bbox_count} bounding boxes")
+            for bbox in annotations["bounding_boxes"][:3]:
+                print(f"    - {bbox.get('class', '?')}: ({bbox.get('x_min', 0):.0f}, {bbox.get('y_min', 0):.0f}) to ({bbox.get('x_max', 0):.0f}, {bbox.get('y_max', 0):.0f})")
+        else:
+            print("  ⚠ No bounding boxes generated (may need visible vehicles)")
+        
+        print()
         print("Press Enter to hide all vehicles and exit...")
         try:
             input()
@@ -319,9 +352,21 @@ def main() -> int:
     ue5_connection = None
     if args.ue5 and not args.simulation:
         print("\nConnecting to UE5...")
-        # TODO: Implement actual UE5 connection
-        # ue5_connection = UE5RemoteConnection(config.ue5_host, config.ue5_port)
-        print("  [Not implemented - using simulation mode]")
+        try:
+            from vantagecv.ue5_bridge import UE5Bridge
+            ue5_connection = UE5Bridge(port=args.ue5_port)
+            
+            # Test connection
+            if not ue5_connection.test_connection():
+                print("  WARNING: UE5 connection test failed - check that editor is running")
+                print("  Falling back to simulation mode")
+                ue5_connection = None
+            else:
+                print(f"  Connected to UE5 on port {args.ue5_port}")
+        except Exception as e:
+            print(f"  ERROR: Failed to connect to UE5: {e}")
+            print("  Falling back to simulation mode")
+            ue5_connection = None
     else:
         print("\nRunning in simulation mode (no UE5)")
     

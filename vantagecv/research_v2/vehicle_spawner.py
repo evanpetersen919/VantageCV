@@ -462,6 +462,11 @@ class VehicleSpawner:
                     "visible": False,
                 })
         
+        # Get world offset from config (camera position in level)
+        offset_x = getattr(self.config, 'world_offset_x', 0.0)
+        offset_y = getattr(self.config, 'world_offset_y', 0.0)
+        offset_z = getattr(self.config, 'world_offset_z', 0.0)
+        
         # Then: show and position selected vehicles
         for vehicle in vehicles:
             commands.append({
@@ -469,13 +474,20 @@ class VehicleSpawner:
                 "actor_name": vehicle.actor_name,
                 "visible": True,
             })
+            
+            # Convert spawn coordinates (meters) to world coordinates (cm)
+            # Spawn X (forward) maps to UE5 X, Spawn Y (lateral) maps to UE5 Y
+            world_x = vehicle.transform.x * 100 + offset_x
+            world_y = vehicle.transform.y * 100 + offset_y
+            world_z = vehicle.transform.z * 100 + offset_z
+            
             commands.append({
                 "type": "set_transform",
                 "actor_name": vehicle.actor_name,
                 "location": {
-                    "x": vehicle.transform.x * 100,  # meters to cm
-                    "y": vehicle.transform.y * 100,
-                    "z": vehicle.transform.z * 100,
+                    "x": world_x,
+                    "y": world_y,
+                    "z": world_z,
                 },
                 "rotation": {
                     "yaw": vehicle.transform.yaw,

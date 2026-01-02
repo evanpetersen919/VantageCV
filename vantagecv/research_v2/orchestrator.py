@@ -357,10 +357,67 @@ class DatasetOrchestrator:
         Returns:
             True if successful
         """
-        # This would be implemented with actual UE5 remote execution
-        # For now, return True as placeholder
-        self.logger.debug("UE5 execution placeholder", vehicle_count=len(vehicles))
-        return True
+        if not self.ue5:
+            self.logger.debug("UE5 not connected, skipping")
+            return True
+        
+        try:
+            # Step 1: Hide all vehicles first
+            self.ue5.hide_all_vehicles(self.config.vehicles.vehicle_actors)
+            
+            # Step 2: Get spawn commands and execute
+            commands = self._spawner.get_ue5_spawn_commands(vehicles)
+            success_count = self.ue5.execute_spawn_commands(commands)
+            
+            if success_count < len(commands) // 2:
+                self.logger.warning(
+                    "Too many UE5 commands failed",
+                    executed=success_count,
+                    total=len(commands),
+                )
+            
+            # Step 3: Wait a moment for UE5 to update
+            import time
+            time.sleep(0.1)  # 100ms for physics/rendering to settle
+            
+            # Step 3.5: Set camera position before capture
+            # Camera position is at the world offset (origin of spawn coordinates)
+            cam_x = self.config.vehicles.world_offset_x
+            cam_y = self.config.vehicles.world_offset_y
+            cam_z = self.config.camera.height * 100  # Convert height from meters to cm
+            
+            self.ue5.set_capture_camera(
+                x=cam_x, y=cam_y, z=cam_z,
+                pitch=0, yaw=0, roll=0,  # Looking forward in +X direction
+                fov=self.config.camera.fov
+            )
+            
+            # Step 4: Capture frame
+            success = self.ue5.capture_frame(
+                str(image_path.absolute()),
+                self.config.camera.width,
+                self.config.camera.height_px,
+            )
+            
+            if not success:
+                self.logger.error("Frame capture failed", image_path=str(image_path))
+                return False
+            
+            self.logger.debug(
+                "UE5 frame executed",
+                vehicle_count=len(vehicles),
+                image_path=str(image_path),
+            )
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(
+                "UE5 execution failed",
+                error=str(e),
+                vehicle_count=len(vehicles),
+            )
+            return False
     
     def _create_placeholder_image(self, path: Path) -> None:
         """Create a placeholder image for simulation mode."""

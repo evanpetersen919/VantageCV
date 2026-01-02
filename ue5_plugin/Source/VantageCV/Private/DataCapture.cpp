@@ -230,28 +230,19 @@ bool ADataCapture::CaptureFrame(const FString& OutputPath, int32 Width, int32 He
 	CaptureComponent->TextureTarget = RenderTarget;
 	UE_LOG(LogDataCapture, Log, TEXT("TextureTarget assigned, size: %dx%d"), RenderTarget->SizeX, RenderTarget->SizeY);
 
-	// Get camera position from editor viewport
+	// Use DataCapture actor's own position and rotation for the capture
+	// This allows Python to control the camera position via Remote Control API
 	UWorld* World = GetWorld();
 	if (World)
 	{
-		// Try to get the editor viewport camera
-		for (FConstPlayerControllerIterator Iterator = World->GetPlayerControllerIterator(); Iterator; ++Iterator)
-		{
-			APlayerController* PC = Iterator->Get();
-			if (PC && PC->PlayerCameraManager)
-			{
-				FVector CamLoc = PC->PlayerCameraManager->GetCameraLocation();
-				FRotator CamRot = PC->PlayerCameraManager->GetCameraRotation();
-				float FOV = PC->PlayerCameraManager->GetFOVAngle();
-				
-				SetActorLocation(CamLoc);
-				SetActorRotation(CamRot);
-				CaptureComponent->FOVAngle = FOV;
-				
-				UE_LOG(LogDataCapture, Log, TEXT("Camera: Loc=%s Rot=%s FOV=%.1f"), *CamLoc.ToString(), *CamRot.ToString(), FOV);
-				break;
-			}
-		}
+		FVector ActorLoc = GetActorLocation();
+		FRotator ActorRot = GetActorRotation();
+		
+		// Use actor's current FOV or default to 90
+		float FOV = CaptureComponent ? CaptureComponent->FOVAngle : 90.0f;
+		
+		UE_LOG(LogDataCapture, Log, TEXT("Using DataCapture actor transform - Loc=%s Rot=%s FOV=%.1f"), 
+			*ActorLoc.ToString(), *ActorRot.ToString(), FOV);
 	}
 
 	// Capture the scene
