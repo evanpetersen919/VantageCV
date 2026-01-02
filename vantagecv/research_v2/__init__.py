@@ -21,6 +21,8 @@ from .camera_system import CameraSystem
 from .annotation import AnnotationGenerator
 from .validation import FrameValidator
 from .orchestrator import DatasetOrchestrator
+from .vehicle_lifecycle import VehicleLifecycleManager
+from .adaptive_camera import AdaptiveCameraController
 
 __all__ = [
     "ResearchLogger",
@@ -32,4 +34,6 @@ __all__ = [
     "AnnotationGenerator",
     "FrameValidator",
     "DatasetOrchestrator",
+    "VehicleLifecycleManager",
+    "AdaptiveCameraController",
 ]

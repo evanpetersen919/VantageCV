@@ -32,6 +32,8 @@ from .vehicle_spawner import VehicleSpawner, SpawnedVehicle
 from .camera_system import CameraSystem
 from .annotation import AnnotationGenerator, FrameAnnotation
 from .validation import FrameValidator, FrameValidationResult
+from .vehicle_lifecycle import VehicleLifecycleManager, VehicleCleanupResult
+from .adaptive_camera import AdaptiveCameraController, CameraFitResult
 
 
 @dataclass
@@ -184,6 +186,23 @@ class DatasetOrchestrator:
             logger=self._pipeline_logger.get_logger("FrameValidator"),
         )
         
+        # Initialize vehicle lifecycle manager (if UE5 connected)
+        self._lifecycle: Optional[VehicleLifecycleManager] = None
+        if self.ue5:
+            self._lifecycle = VehicleLifecycleManager(
+                ue5_bridge=self.ue5,
+                vehicle_actors=config.vehicles.vehicle_actors,
+                logger=self._pipeline_logger.get_logger("VehicleLifecycle"),
+            )
+        
+        # Initialize adaptive camera controller
+        self._adaptive_camera = AdaptiveCameraController(
+            config=config.camera,
+            image_width=config.camera.width,
+            image_height=config.camera.height_px,
+            logger=self._pipeline_logger.get_logger("AdaptiveCamera"),
+        )
+        
         # Statistics
         self._stats = DatasetStatistics()
         self._frame_results: list[FrameResult] = []
@@ -193,6 +212,8 @@ class DatasetOrchestrator:
             num_images=config.num_images,
             random_seed=config.random_seed,
             output_dir=str(config.output.base_dir),
+            lifecycle_manager_enabled=self._lifecycle is not None,
+            adaptive_camera_enabled=True,
         )
     
     def validate_config(self) -> tuple[bool, list[str]]:
@@ -347,7 +368,11 @@ class DatasetOrchestrator:
         image_path: Path,
     ) -> bool:
         """
-        Execute frame generation in UE5.
+        Execute frame generation in UE5 with HARD CONSTRAINTS:
+        
+        1. VEHICLE LIFECYCLE: All vehicles MUST be cleaned up after capture
+        2. CAMERA VISIBILITY: All vehicles MUST have >=50% visibility
+        3. FAIL-FAST: Any failure aborts the frame immediately
         
         Args:
             vehicles: Vehicles to spawn
@@ -362,37 +387,91 @@ class DatasetOrchestrator:
             return True
         
         try:
-            # Step 1: Hide all vehicles first
-            self.ue5.hide_all_vehicles(self.config.vehicles.vehicle_actors)
+            # ============================================================
+            # STEP 1: VERIFY CLEAN STATE (FAIL-FAST)
+            # ============================================================
+            if self._lifecycle:
+                is_clean, violations = self._lifecycle.verify_clean_state()
+                if not is_clean:
+                    self.logger.error(
+                        "ABORT: Scene not clean before frame",
+                        violations=violations[:5],  # Show first 5
+                    )
+                    # Force cleanup before aborting
+                    self._lifecycle.cleanup_all()
+                    return False
+            else:
+                # Fallback: hide all vehicles
+                self.ue5.hide_all_vehicles(self.config.vehicles.vehicle_actors)
             
-            # Step 2: Get spawn commands and execute
+            self.logger.info("Vehicle cleanup started", method="verify_clean_state")
+            
+            # ============================================================
+            # STEP 2: FIT CAMERA TO VEHICLES (VISIBILITY GUARANTEE)
+            # ============================================================
+            camera_fit = self._adaptive_camera.fit_camera_to_vehicles(
+                vehicles=vehicles,
+                world_offset_x=self.config.vehicles.world_offset_x,
+                world_offset_y=self.config.vehicles.world_offset_y,
+            )
+            
+            # Log camera fit results (REQUIRED)
+            self.logger.info(
+                "Camera fit computed",
+                vehicle_centroid=camera_fit.vehicle_centroid,
+                camera_position=camera_fit.camera_position,
+                camera_fov=camera_fit.fov,
+                per_vehicle_visibility=[
+                    {"actor": v.actor_name, "ratio": v.visible_ratio}
+                    for v in camera_fit.visibility_results
+                ],
+                success=camera_fit.success,
+            )
+            
+            if not camera_fit.success:
+                self.logger.error(
+                    "ABORT: Camera fit failed - cannot guarantee visibility",
+                    failure_reason=camera_fit.failure_reason,
+                    retry_count=camera_fit.retry_count,
+                )
+                return False
+            
+            # ============================================================
+            # STEP 3: SPAWN VEHICLES
+            # ============================================================
             commands = self._spawner.get_ue5_spawn_commands(vehicles)
             success_count = self.ue5.execute_spawn_commands(commands)
             
             if success_count < len(commands) // 2:
                 self.logger.warning(
-                    "Too many UE5 commands failed",
+                    "Too many UE5 spawn commands failed",
                     executed=success_count,
                     total=len(commands),
                 )
             
-            # Step 3: Wait a moment for UE5 to update
-            import time
+            # Track spawned actors
+            spawned_actors = [v.actor_name for v in vehicles]
+            if self._lifecycle:
+                self._lifecycle.register_spawned(spawned_actors)
+            
+            # Wait for UE5 to update
             time.sleep(0.1)  # 100ms for physics/rendering to settle
             
-            # Step 3.5: Set camera position before capture
-            # Camera position is at the world offset (origin of spawn coordinates)
-            cam_x = self.config.vehicles.world_offset_x
-            cam_y = self.config.vehicles.world_offset_y
-            cam_z = self.config.camera.height * 100  # Convert height from meters to cm
+            # ============================================================
+            # STEP 4: SET CAMERA (DATA-DRIVEN POSITION)
+            # ============================================================
+            cam_x, cam_y, cam_z = camera_fit.camera_position
+            pitch, yaw, roll = camera_fit.camera_rotation
             
             self.ue5.set_capture_camera(
                 x=cam_x, y=cam_y, z=cam_z,
-                pitch=0, yaw=0, roll=0,  # Looking forward in +X direction
-                fov=self.config.camera.fov
+                pitch=pitch, yaw=yaw, roll=roll,
+                fov=camera_fit.fov
             )
             
-            # Step 4: Capture frame
+            # ============================================================
+            # STEP 5: CAPTURE FRAME
+            # ============================================================
             success = self.ue5.capture_frame(
                 str(image_path.absolute()),
                 self.config.camera.width,
@@ -400,14 +479,14 @@ class DatasetOrchestrator:
             )
             
             if not success:
-                self.logger.error("Frame capture failed", image_path=str(image_path))
+                self.logger.error(
+                    "ABORT: Frame capture failed",
+                    image_path=str(image_path),
+                )
                 return False
             
-            # Step 5: Hide all vehicles after capture
-            self.ue5.hide_all_vehicles(self.config.vehicles.vehicle_actors)
-            
             self.logger.debug(
-                "UE5 frame executed",
+                "UE5 frame executed successfully",
                 vehicle_count=len(vehicles),
                 image_path=str(image_path),
             )
@@ -415,17 +494,40 @@ class DatasetOrchestrator:
             return True
             
         except Exception as e:
-            # Ensure vehicles are hidden even on error
-            try:
-                self.ue5.hide_all_vehicles(self.config.vehicles.vehicle_actors)
-            except:
-                pass
             self.logger.error(
-                "UE5 execution failed",
+                "ABORT: UE5 execution exception",
                 error=str(e),
                 vehicle_count=len(vehicles),
             )
             return False
+        
+        finally:
+            # ============================================================
+            # MANDATORY CLEANUP: Remove ALL vehicles after capture
+            # ============================================================
+            self.logger.info("Vehicle cleanup started", method="post_capture")
+            
+            if self._lifecycle:
+                cleanup_result = self._lifecycle.cleanup_all()
+                self.logger.info(
+                    "Vehicle cleanup completed",
+                    vehicles_removed=cleanup_result.vehicles_cleaned,
+                    success=cleanup_result.success,
+                    method=cleanup_result.method,
+                )
+                if not cleanup_result.success:
+                    self.logger.error(
+                        "Vehicle cleanup FAILED",
+                        vehicles_failed=cleanup_result.vehicles_failed,
+                        failure_reasons=cleanup_result.failure_reasons[:5],
+                    )
+            else:
+                # Fallback cleanup
+                try:
+                    self.ue5.hide_all_vehicles(self.config.vehicles.vehicle_actors)
+                    self.logger.info("Vehicle cleanup completed", method="hide_all")
+                except Exception as e:
+                    self.logger.error("Vehicle cleanup failed", error=str(e))
     
     def _create_placeholder_image(self, path: Path) -> None:
         """Create a placeholder image for simulation mode."""
