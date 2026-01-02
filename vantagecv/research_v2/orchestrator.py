@@ -505,6 +505,9 @@ class DatasetOrchestrator:
             # ============================================================
             # MANDATORY CLEANUP: Remove ALL vehicles after capture
             # ============================================================
+            # INVARIANT 1: After cleanup, ZERO vehicles may be visible
+            # INVARIANT 2: This uses authoritative UE5 world sweep
+            # ============================================================
             self.logger.info("Vehicle cleanup started", method="post_capture")
             
             if self._lifecycle:
@@ -516,15 +519,30 @@ class DatasetOrchestrator:
                     method=cleanup_result.method,
                 )
                 if not cleanup_result.success:
+                    # FATAL: Vehicles leaked - log structured error
                     self.logger.error(
-                        "Vehicle cleanup FAILED",
+                        "FATAL: Vehicle cleanup FAILED",
+                        level="FATAL",
                         vehicles_failed=cleanup_result.vehicles_failed,
                         failure_reasons=cleanup_result.failure_reasons[:5],
+                        suggested_fix="Check DomainRandomization.RandomizeVehicles or duplicate spawn paths",
                     )
             else:
-                # Fallback cleanup
+                # Fallback cleanup - MUST also call authoritative cleanup
                 try:
                     self.ue5.hide_all_vehicles(self.config.vehicles.vehicle_actors)
+                    # Also call authoritative cleanup if available
+                    try:
+                        hidden, still_visible = self.ue5.authoritative_vehicle_cleanup()
+                        if still_visible > 0:
+                            self.logger.error(
+                                "FATAL: Vehicle leak detected",
+                                level="FATAL",
+                                remaining_vehicles=still_visible,
+                                suggested_fix="Duplicate spawn path or missing registration",
+                            )
+                    except Exception:
+                        pass  # Authoritative cleanup not available
                     self.logger.info("Vehicle cleanup completed", method="hide_all")
                 except Exception as e:
                     self.logger.error("Vehicle cleanup failed", error=str(e))

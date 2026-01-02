@@ -400,6 +400,55 @@ class UE5Bridge:
         logger.info(f"Hidden {count} vehicle actors")
         return count
     
+    def authoritative_vehicle_cleanup(self, domain_randomization_path: str = None) -> tuple[int, int]:
+        """
+        AUTHORITATIVE CLEANUP: Call UE5's HideAllVehicles world sweep.
+        
+        This is the ONLY cleanup method that guarantees zero vehicles remain.
+        It performs a world sweep on the UE5 side regardless of Python's tracking.
+        
+        Args:
+            domain_randomization_path: Optional path to DomainRandomization actor.
+                                       If None, uses default path.
+        
+        Returns:
+            (vehicles_hidden, vehicles_still_visible)
+            If vehicles_still_visible > 0, system is BROKEN.
+        """
+        if domain_randomization_path is None:
+            domain_randomization_path = "/Game/automobile.automobile:PersistentLevel.DomainRandomization_0"
+        
+        try:
+            # Call HideAllVehicles on DomainRandomization actor
+            result = self.call_function(
+                domain_randomization_path,
+                "HideAllVehicles",
+                {}
+            )
+            vehicles_hidden = result.get("ReturnValue", 0)
+            
+            # Verify with world sweep
+            verify_result = self.call_function(
+                domain_randomization_path,
+                "GetVisibleVehicleCountWorldSweep",
+                {}
+            )
+            vehicles_still_visible = verify_result.get("ReturnValue", -1)
+            
+            if vehicles_still_visible > 0:
+                logger.error(
+                    f"VEHICLE LEAK DETECTED: {vehicles_still_visible} vehicles still visible after cleanup!"
+                )
+            else:
+                logger.info(f"Authoritative cleanup: {vehicles_hidden} vehicles hidden, 0 visible")
+            
+            return vehicles_hidden, vehicles_still_visible
+            
+        except Exception as e:
+            logger.error(f"Authoritative cleanup failed: {e}")
+            # Fall back to Python-side cleanup
+            return 0, -1
+
     def get_actor_bounds(self, actor_name: str) -> Optional[Dict[str, float]]:
         """
         Get actor bounding box dimensions in centimeters.

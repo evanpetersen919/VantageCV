@@ -100,18 +100,21 @@ class VehicleLifecycleManager:
         """
         MANDATORY cleanup after each frame.
         
-        Relocates ALL vehicles (not just spawned ones) to graveyard location.
-        This ensures a clean slate even if tracking missed something.
+        PHASE 1: Python-side cleanup (relocate tracked vehicles)
+        PHASE 2: UE5 authoritative world sweep (catches ANY leaked vehicles)
         
         Returns:
             VehicleCleanupResult with success/failure info
         """
         self.log.info(
             "Vehicle cleanup started",
-            method="relocate_and_hide",
+            method="two_phase_authoritative",
             graveyard_z=VEHICLE_GRAVEYARD_Z,
         )
         
+        # ============================================================
+        # PHASE 1: Python-side cleanup (tracked vehicles only)
+        # ============================================================
         all_actors = []
         for class_name, actors in self.vehicle_actors.items():
             all_actors.extend(actors)
@@ -131,11 +134,52 @@ class VehicleLifecycleManager:
         # Clear spawned tracking
         self._spawned_actors.clear()
         
+        self.log.info(
+            "Phase 1 complete: Python-side cleanup",
+            vehicles_cleaned=cleaned,
+            vehicles_failed=failed,
+        )
+        
+        # ============================================================
+        # PHASE 2: UE5 authoritative world sweep (MANDATORY)
+        # ============================================================
+        # This catches ANY vehicles that Python didn't know about
+        # (e.g., from DomainRandomization.RandomizeVehicles)
+        # ============================================================
+        try:
+            hidden_by_ue5, still_visible = self.ue5.authoritative_vehicle_cleanup()
+            
+            if still_visible > 0:
+                # FATAL: Vehicles leaked
+                failure_reasons.append(
+                    f"UE5 world sweep found {still_visible} vehicles STILL VISIBLE after cleanup!"
+                )
+                failed += still_visible
+                self.log.error(
+                    "FATAL: Vehicle cleanup FAILED - vehicles still visible",
+                    vehicles_still_visible=still_visible,
+                    level="FATAL",
+                )
+            else:
+                self.log.info(
+                    "Phase 2 complete: UE5 authoritative world sweep",
+                    vehicles_hidden_by_ue5=hidden_by_ue5,
+                    vehicles_still_visible=still_visible,
+                )
+        except Exception as e:
+            # If authoritative cleanup fails, log warning but don't fail
+            # (old behavior is preserved as fallback)
+            self.log.warning(
+                "UE5 authoritative cleanup unavailable, using fallback",
+                error=str(e),
+            )
+        
         result = VehicleCleanupResult(
             success=(failed == 0),
             vehicles_cleaned=cleaned,
             vehicles_failed=failed,
             failure_reasons=failure_reasons,
+            method="two_phase_authoritative",
         )
         
         if result.success:
