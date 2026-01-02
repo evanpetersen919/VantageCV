@@ -116,14 +116,42 @@ class VehicleSpawnerConfig:
     # UE5 pre-placed actor names (visibility-based spawning)
     # These are actors already in the level that we hide/show and reposition
     vehicle_actors: dict[str, list[str]] = field(default_factory=lambda: {
-        "car": ["StaticMeshActor_4", "StaticMeshActor_7", "StaticMeshActor_13", 
+        "car": ["StaticMeshActor_4", "StaticMeshActor_13", 
                 "StaticMeshActor_18", "StaticMeshActor_19", "StaticMeshActor_23",
                 "StaticMeshActor_26", "StaticMeshActor_29", "StaticMeshActor_33",
                 "StaticMeshActor_34", "StaticMeshActor_39"],
         "truck": ["StaticMeshActor_25", "StaticMeshActor_27", "StaticMeshActor_31", "StaticMeshActor_41"],
-        "bus": ["StaticMeshActor_9", "StaticMeshActor_11"],
+        "bus": ["StaticMeshActor_7", "StaticMeshActor_9", "StaticMeshActor_11"],
         "motorcycle": ["StaticMeshActor_2", "StaticMeshActor_8", "SkeletalMeshActor_5"],
         "bicycle": ["StaticMeshActor_1", "StaticMeshActor_3", "StaticMeshActor_5"],
+    })
+    
+    # Normalization scales to bring inconsistent asset sizes to realistic dimensions
+    # Manually adjusted in UE5 and saved with scripts/save_current_scales.py
+    vehicle_normalization_scales: dict[str, float] = field(default_factory=lambda: {
+        "SkeletalMeshActor_5": 22.216,
+        "StaticMeshActor_1": 0.292,
+        "StaticMeshActor_11": 1.425,
+        "StaticMeshActor_13": 1.342,
+        "StaticMeshActor_18": 0.09,
+        "StaticMeshActor_19": 0.047,
+        "StaticMeshActor_2": 1.048,
+        "StaticMeshActor_23": 1.47,
+        "StaticMeshActor_25": 0.035,
+        "StaticMeshActor_26": 1.162,
+        "StaticMeshActor_27": 1.407,
+        "StaticMeshActor_29": 1.564,
+        "StaticMeshActor_3": 14.75,
+        "StaticMeshActor_31": 1.91,
+        "StaticMeshActor_33": 1.435,
+        "StaticMeshActor_34": 0.015,
+        "StaticMeshActor_39": 1.632,
+        "StaticMeshActor_4": 0.282,
+        "StaticMeshActor_41": 1.19,
+        "StaticMeshActor_5": 2.252,
+        "StaticMeshActor_7": 1.23,
+        "StaticMeshActor_8": 0.687,
+        "StaticMeshActor_9": 1.225,
     })
 
 
