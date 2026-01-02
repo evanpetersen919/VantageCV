@@ -161,6 +161,9 @@ class VehicleSpawner:
         self._class_counts: dict[str, int] = {c.value: 0 for c in VehicleClass}
         self._spawn_failures = 0
         
+        # CRITICAL: Track used actors per frame to prevent duplicate selection
+        self._used_actors_this_frame: set[str] = set()
+        
         self.logger.log_init(
             spawn_x_range=(config.spawn_x_min, config.spawn_x_max),
             position_jitter=config.position_jitter,
@@ -225,23 +228,53 @@ class VehicleSpawner:
         
         return chosen
     
-    def sample_actor(self, vehicle_class: VehicleClass) -> str:
+    def sample_actor(self, vehicle_class: VehicleClass) -> Optional[str]:
         """
-        Sample actor name for vehicle class.
+        Sample actor name for vehicle class, ensuring NO DUPLICATES within a frame.
+        
+        CRITICAL: Each actor can only be used ONCE per frame to prevent
+        the "ghost vehicle" bug where the same actor is moved to multiple
+        positions and only the last position is visible.
         
         Args:
             vehicle_class: Vehicle class to get actor for
             
         Returns:
-            Actor name string (e.g., "Car_1")
+            Actor name string (e.g., "StaticMeshActor_4") or None if all used
         """
         actors = self.config.vehicle_actors.get(vehicle_class.value, [])
         
         if not actors:
-            # Use placeholder
-            return f"{vehicle_class.value.title()}_Placeholder"
+            self.logger.warning(
+                "No actors available for class",
+                vehicle_class=vehicle_class.value,
+            )
+            return None
         
-        return self._rng.choice(actors)
+        # Filter out already-used actors
+        available = [a for a in actors if a not in self._used_actors_this_frame]
+        
+        if not available:
+            self.logger.warning(
+                "All actors exhausted for class",
+                vehicle_class=vehicle_class.value,
+                total_actors=len(actors),
+                used_this_frame=len(self._used_actors_this_frame),
+            )
+            return None
+        
+        # Select and mark as used
+        chosen = self._rng.choice(available)
+        self._used_actors_this_frame.add(chosen)
+        
+        self.logger.debug(
+            "Actor selected",
+            actor_name=chosen,
+            vehicle_class=vehicle_class.value,
+            remaining_for_class=len(available) - 1,
+        )
+        
+        return chosen
     
     def sample_color(self) -> tuple[int, int, int]:
         """Sample a random vehicle color."""
@@ -353,12 +386,18 @@ class VehicleSpawner:
         """
         Spawn vehicles for current frame.
         
+        CRITICAL: Resets used actor tracking at the start of each spawn call
+        to prevent cross-frame actor reuse issues.
+        
         Args:
             count: Number of vehicles (sampled if not provided)
             
         Returns:
             SpawnResult with spawned vehicles
         """
+        # CRITICAL: Reset used actors for this frame
+        self._used_actors_this_frame.clear()
+        
         if count is None:
             count = self.sample_vehicle_count()
         
@@ -375,10 +414,28 @@ class VehicleSpawner:
             vehicle_class = self.sample_vehicle_class()
             lane_index = self._rng.randint(0, self.scene_config.num_lanes - 1)
             
+            # Sample actor FIRST - may fail if all actors of this class are used
+            actor_name = self.sample_actor(vehicle_class)
+            
+            if actor_name is None:
+                failure = {
+                    "index": i,
+                    "class": vehicle_class.value,
+                    "lane_index": lane_index,
+                    "reason": "No available actors for class (all used this frame)",
+                    "suggested_fix": "Add more vehicle actors or reduce vehicle count",
+                }
+                failures.append(failure)
+                self._spawn_failures += 1
+                self.logger.warning("Spawn failed: actor exhaustion", **failure)
+                continue
+            
             # Try to sample valid position
             transform = self.sample_position(lane_index, vehicles, vehicle_class)
             
             if transform is None:
+                # Release the actor since we couldn't use it
+                self._used_actors_this_frame.discard(actor_name)
                 failure = {
                     "index": i,
                     "class": vehicle_class.value,
@@ -395,14 +452,13 @@ class VehicleSpawner:
                 )
                 continue
             
-            # Create vehicle instance
+            # Create vehicle instance (actor_name already selected above)
             instance_id = f"vehicle_{uuid.uuid4().hex[:8]}"
-            actor_name = self.sample_actor(vehicle_class)
             
             vehicle = SpawnedVehicle(
                 instance_id=instance_id,
                 vehicle_class=vehicle_class,
-                actor_name=actor_name,
+                actor_name=actor_name,  # Use already-selected actor
                 transform=transform,
                 dimensions=self.get_vehicle_dimensions(actor_name, vehicle_class),
                 color=self.sample_color(),
@@ -417,6 +473,7 @@ class VehicleSpawner:
                 "Vehicle spawned",
                 instance_id=instance_id,
                 vehicle_class=vehicle_class.value,
+                actor_name=actor_name,  # Log which actor was used
                 position={"x": transform.x, "y": transform.y, "z": transform.z},
                 dimensions={"l": vehicle.dimensions.length, "w": vehicle.dimensions.width, "h": vehicle.dimensions.height},
                 lane_index=lane_index,
@@ -430,6 +487,31 @@ class VehicleSpawner:
             requested_count=count,
             actual_count=len(vehicles),
             failures=failures,
+        )
+        
+        # VERIFICATION: Assert all actors are unique
+        actor_names = [v.actor_name for v in vehicles]
+        unique_actors = set(actor_names)
+        if len(actor_names) != len(unique_actors):
+            duplicate_check = {}
+            for name in actor_names:
+                duplicate_check[name] = duplicate_check.get(name, 0) + 1
+            duplicates = {k: v for k, v in duplicate_check.items() if v > 1}
+            
+            self.logger.error(
+                "CRITICAL: Duplicate actors detected - this will cause visibility bugs!",
+                total_vehicles=len(vehicles),
+                unique_actors=len(unique_actors),
+                duplicates=duplicates,
+            )
+            # This is a bug - fail fast
+            raise RuntimeError(f"Duplicate actors spawned: {duplicates}")
+        
+        self.logger.info(
+            "Actor uniqueness verified",
+            vehicle_count=len(vehicles),
+            unique_actor_count=len(unique_actors),
+            actors_used=list(unique_actors),
         )
         
         self.logger.log_output(

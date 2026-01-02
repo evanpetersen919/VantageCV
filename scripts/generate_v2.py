@@ -240,12 +240,35 @@ def test_ue5_connection(config: ResearchConfig, port: int) -> int:
         import tempfile
         test_path = Path(tempfile.gettempdir()) / "vantagecv_test_capture.png"
         
-        # Set camera position before capture (at world offset, looking forward)
+        # Calculate camera position to see spawned vehicles
+        # Compute centroid of all vehicles (in cm for UE5)
+        vehicle_positions = [(v.transform.x * 100, v.transform.y * 100) for v in result.vehicles]
+        centroid_x = sum(p[0] for p in vehicle_positions) / len(vehicle_positions)
+        centroid_y = sum(p[1] for p in vehicle_positions) / len(vehicle_positions)
+        
+        # Position camera behind and above the vehicles, looking at centroid
+        # Camera offset: behind (negative X), elevated, centered on Y
+        camera_distance = 3000  # 30 meters behind centroid
+        camera_height = config.camera.height * 100  # meters to cm
+        
+        camera_x = centroid_x - camera_distance  # Behind the centroid
+        camera_y = centroid_y  # Centered on the vehicle spread
+        camera_z = camera_height
+        
+        # Calculate pitch to look at ground-level centroid
+        import math
+        dx = centroid_x - camera_x
+        dz = -camera_z  # Looking down at ground level
+        pitch = math.degrees(math.atan2(dz, dx))  # Negative = looking down
+        
+        print(f"  Camera: ({camera_x/100:.1f}m, {camera_y/100:.1f}m, {camera_z/100:.1f}m) pitch={pitch:.1f}°")
+        print(f"  Target: vehicle centroid at ({centroid_x/100:.1f}m, {centroid_y/100:.1f}m)")
+        
         bridge.set_capture_camera(
-            x=config.vehicles.world_offset_x,
-            y=config.vehicles.world_offset_y,
-            z=config.camera.height * 100,  # meters to cm
-            pitch=0, yaw=0, roll=0,
+            x=camera_x,
+            y=camera_y,
+            z=camera_z,
+            pitch=pitch, yaw=0, roll=0,
             fov=config.camera.fov
         )
         
@@ -269,12 +292,16 @@ def test_ue5_connection(config: ResearchConfig, port: int) -> int:
         print("Press Enter to hide all vehicles and exit...")
         try:
             input()
-        except KeyboardInterrupt:
-            pass
+        except (KeyboardInterrupt, EOFError):
+            print("\nSkipping cleanup (interrupted)")
+            return 0
         
         # Cleanup: hide all vehicles
-        bridge.hide_all_vehicles(vehicle_actors)
-        print("Vehicles hidden. Test complete.")
+        try:
+            bridge.hide_all_vehicles(vehicle_actors)
+            print("Vehicles hidden. Test complete.")
+        except Exception as e:
+            print(f"Warning: Could not hide vehicles (UE5 may be closed): {e}")
         return 0
     else:
         print("FAILED - Check UE5 setup")
