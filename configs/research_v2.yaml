@@ -62,36 +62,37 @@ vehicles:
   position_jitter: 0.5        # meters lateral jitter
   min_spacing: 5.0            # meters between vehicles
   
-  # Pre-placed actor names in UE5 level (visibility-based spawning)
+  # Pre-placed actor names in UE5 level (auto-discovered internal names)
+  # Use scripts/discover_vehicles.py to regenerate this list
   vehicle_actors:
     car:
-      - "Car_1"
-      - "Car_2"
-      - "Car_3"
-      - "Car_4"
-      - "Car_5"
-      - "Car_6"
-      - "Car_7"
-      - "Car_8"
-      - "Car_9"
-      - "Car_10"
+      - "StaticMeshActor_4"   # ford_mustang_shelby_2012
+      - "StaticMeshActor_7"   # low_poly_torino
+      - "StaticMeshActor_13"  # generic_sedan_car
+      - "StaticMeshActor_18"  # bmw_m3_sedan_2013
+      - "StaticMeshActor_19"  # red_car
+      - "StaticMeshActor_23"  # bmw_m3_coupe_e30_1986
+      - "StaticMeshActor_26"  # lamborghini_countach
+      - "StaticMeshActor_29"  # SM_Hatchback
+      - "StaticMeshActor_33"  # SM_SportsCar
+      - "StaticMeshActor_34"  # bmw_x5_m_competition
+      - "StaticMeshActor_39"  # SM_SUV
     truck:
-      - "Truck_1"
-      - "Truck_2"
-      - "Truck_3"
-      - "Truck_4"
+      - "StaticMeshActor_25"  # hilux_pick_up_truck
+      - "StaticMeshActor_27"  # zil_130_body
+      - "StaticMeshActor_31"  # SM_Pickup
+      - "StaticMeshActor_41"  # SM_Truck_Box
     bus:
-      - "Bus_1"
-      - "Bus_2"
-      - "Bus_3"
+      - "StaticMeshActor_9"   # marcopolo_ideale_770
+      - "StaticMeshActor_11"  # paz_652_clean
     motorcycle:
-      - "Motorcycle_1"
-      - "Motorcycle_2"
-      - "Motorcycle_3"
+      - "StaticMeshActor_2"   # bajaj_avenger_180cc
+      - "StaticMeshActor_8"   # cafe_racer_motorcycle
+      - "SkeletalMeshActor_5" # skeletal motorcycle
     bicycle:
-      - "Bike_1"
-      - "Bike_2"
-      - "Bike_3"
+      - "StaticMeshActor_1"   # classic_bicycle
+      - "StaticMeshActor_3"   # cycle
+      - "StaticMeshActor_5"   # old_bicycle
 
 # ============================================
 # MODULE 3: Camera System
