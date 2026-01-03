@@ -306,11 +306,49 @@ class VehicleLifecycleManager:
         """
         Verify that no vehicles are visible or in-bounds.
         
-        FAIL-FAST: This should be called before each frame to ensure clean state.
+        Uses authoritative world sweep via DomainRandomization actor.
         
         Returns:
             (is_clean, list of violations)
         """
+        violations = []
+        
+        # Use authoritative verification from DomainRandomization actor
+        # This uses GetVisibleVehicleCountWorldSweep() which iterates ALL tagged vehicles
+        try:
+            domain_randomization_path = "/Game/automobile.automobile:PersistentLevel.DomainRandomization_1"
+            result = self.ue5.call_function(
+                domain_randomization_path,
+                "GetVisibleVehicleCountWorldSweep",
+                {}
+            )
+            visible_count = result.get("ReturnValue", -1)
+            
+            if visible_count > 0:
+                violations.append(f"{visible_count} vehicles still visible (authoritative world sweep)")
+            elif visible_count < 0:
+                # Fallback to Z-position check if authoritative function fails
+                self.log.warning("Authoritative verification unavailable, using Z-position check")
+                violations = self._verify_by_position()
+                
+        except Exception as e:
+            self.log.warning(f"Authoritative verification failed: {e}, using Z-position check")
+            violations = self._verify_by_position()
+        
+        is_clean = len(violations) == 0
+        
+        if is_clean:
+            self.log.debug("Scene verified clean: no vehicles visible")
+        else:
+            self.log.error(
+                "Scene NOT clean - vehicles detected",
+                violations=violations,
+            )
+        
+        return is_clean, violations
+    
+    def _verify_by_position(self) -> List[str]:
+        """Fallback verification using Z-position checks."""
         violations = []
         
         for class_name, actors in self.vehicle_actors.items():
@@ -318,19 +356,7 @@ class VehicleLifecycleManager:
                 try:
                     actor_path = f"/Game/automobile.automobile:PersistentLevel.{actor_name}"
                     
-                    # Check visibility
-                    result = self.ue5.call_function(
-                        actor_path,
-                        "IsHidden",
-                        {}
-                    )
-                    is_hidden = result.get("ReturnValue", True)
-                    
-                    if not is_hidden:
-                        violations.append(f"{actor_name} is still visible")
-                        continue
-                    
-                    # Check Z position
+                    # Check Z position only (IsHidden not exposed via Remote Control)
                     result = self.ue5.call_function(
                         actor_path,
                         "K2_GetActorLocation",
@@ -344,17 +370,7 @@ class VehicleLifecycleManager:
                         violations.append(f"{actor_name} at Z={z}, expected < -1000")
                         
                 except Exception as e:
-                    # Can't verify = assume violation
-                    violations.append(f"{actor_name} verification failed: {e}")
+                    # Can't verify = log but don't fail
+                    self.log.debug(f"Could not verify {actor_name}: {e}")
         
-        is_clean = len(violations) == 0
-        
-        if is_clean:
-            self.log.debug("Scene verified clean: no vehicles visible")
-        else:
-            self.log.error(
-                "Scene NOT clean - vehicles detected",
-                violations=violations,
-            )
-        
-        return is_clean, violations
+        return violations

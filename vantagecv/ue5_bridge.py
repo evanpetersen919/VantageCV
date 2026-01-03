@@ -416,7 +416,7 @@ class UE5Bridge:
             If vehicles_still_visible > 0, system is BROKEN.
         """
         if domain_randomization_path is None:
-            domain_randomization_path = "/Game/automobile.automobile:PersistentLevel.DomainRandomization_0"
+            domain_randomization_path = "/Game/automobile.automobile:PersistentLevel.DomainRandomization_1"
         
         try:
             # Call HideAllVehicles on DomainRandomization actor

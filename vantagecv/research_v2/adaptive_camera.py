@@ -336,9 +336,9 @@ class AdaptiveCameraController:
         positions = []
         for v in vehicles:
             # Convert from spawn coordinates (meters) to world (cm)
-            wx = world_offset_x + v.position["x"] * 100
-            wy = world_offset_y + v.position["y"] * 100
-            wz = v.position.get("z", 0) * 100  # Usually on ground
+            wx = world_offset_x + v.transform.x * 100
+            wy = world_offset_y + v.transform.y * 100
+            wz = v.transform.z * 100  # Usually on ground
             
             # Account for vehicle dimensions (in meters, convert to cm)
             half_l = v.dimensions.length * 100 / 2
@@ -415,9 +415,9 @@ class AdaptiveCameraController:
         
         for vehicle in vehicles:
             # Get vehicle position in world coordinates (cm)
-            vx = world_offset_x + vehicle.position["x"] * 100
-            vy = world_offset_y + vehicle.position["y"] * 100
-            vz = vehicle.position.get("z", 0) * 100
+            vx = world_offset_x + vehicle.transform.x * 100
+            vy = world_offset_y + vehicle.transform.y * 100
+            vz = vehicle.transform.z * 100
             
             # Vehicle dimensions in cm
             half_l = vehicle.dimensions.length * 100 / 2
