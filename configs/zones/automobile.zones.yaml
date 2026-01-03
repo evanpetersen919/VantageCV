@@ -1,0 +1,187 @@
+# ============================================
+# VantageCV Zone Manifest - Automobile Level
+# ============================================
+#
+# Zone definitions for the automobile test level.
+# This file explicitly defines all spawnable areas.
+#
+# Asset: /Game/automobile
+# Author: VantageCV System
+# Version: 1.0.0
+#
+# ============================================
+
+asset_id: "automobile_level"
+
+zones:
+  # ========================================
+  # MAIN ROAD - 3 Lane Highway
+  # ========================================
+  - zone_id: "main_road"
+    zone_type: "road"
+    enabled: true
+    
+    bounds:
+      shape: "box"
+      center:
+        x: 55.0      # 10m to 100m spawn range, center at 55m
+        y: 0.0       # centered on road
+        z: 0.0       # ground level
+      size:
+        x: 90.0      # 90m length (10-100m range)
+        y: 12.0      # 12m width (3 lanes @ 4m)
+        z: 5.0       # 5m height clearance
+    
+    allowed_classes:
+      - "car"
+      - "truck"
+      - "bus"
+      - "motorcycle"
+      - "bicycle"
+    
+    max_vehicles: 10
+    
+    direction: "forward"
+    
+    lanes:
+      - y_offset: -4.0
+        width: 4.0
+        name: "lane_left"
+      - y_offset: 0.0
+        width: 4.0
+        name: "lane_center"
+      - y_offset: 4.0
+        width: 4.0
+        name: "lane_right"
+  
+  # ========================================
+  # SIDE PARKING - Left Side
+  # ========================================
+  - zone_id: "parking_left"
+    zone_type: "parking"
+    enabled: true
+    
+    bounds:
+      shape: "box"
+      center:
+        x: 30.0      # 30m from camera
+        y: -10.0     # left side of road
+        z: 0.0
+      size:
+        x: 40.0      # 40m long
+        y: 6.0       # 6m wide (2 rows)
+        z: 3.0       # 3m height
+    
+    allowed_classes:
+      - "car"
+      - "motorcycle"
+    
+    allow_random_placement: false
+    slot_jitter_meters: 0.2
+    
+    slots:
+      # Row 1 - 8 slots
+      - slot_id: "pl_01"
+        transform:
+          position: { x: 15.0, y: -8.0, z: 0.0 }
+          rotation: { pitch: 0, yaw: 90, roll: 0 }
+        allowed_classes: ["car", "motorcycle"]
+      
+      - slot_id: "pl_02"
+        transform:
+          position: { x: 20.0, y: -8.0, z: 0.0 }
+          rotation: { pitch: 0, yaw: 90, roll: 0 }
+        allowed_classes: ["car", "motorcycle"]
+      
+      - slot_id: "pl_03"
+        transform:
+          position: { x: 25.0, y: -8.0, z: 0.0 }
+          rotation: { pitch: 0, yaw: 90, roll: 0 }
+        allowed_classes: ["car", "motorcycle"]
+      
+      - slot_id: "pl_04"
+        transform:
+          position: { x: 30.0, y: -8.0, z: 0.0 }
+          rotation: { pitch: 0, yaw: 90, roll: 0 }
+        allowed_classes: ["car", "motorcycle"]
+      
+      - slot_id: "pl_05"
+        transform:
+          position: { x: 35.0, y: -8.0, z: 0.0 }
+          rotation: { pitch: 0, yaw: 90, roll: 0 }
+        allowed_classes: ["car", "motorcycle"]
+      
+      - slot_id: "pl_06"
+        transform:
+          position: { x: 40.0, y: -8.0, z: 0.0 }
+          rotation: { pitch: 0, yaw: 90, roll: 0 }
+        allowed_classes: ["car", "motorcycle"]
+      
+      - slot_id: "pl_07"
+        transform:
+          position: { x: 45.0, y: -8.0, z: 0.0 }
+          rotation: { pitch: 0, yaw: 90, roll: 0 }
+        allowed_classes: ["car", "motorcycle"]
+      
+      - slot_id: "pl_08"
+        transform:
+          position: { x: 50.0, y: -8.0, z: 0.0 }
+          rotation: { pitch: 0, yaw: 90, roll: 0 }
+        allowed_classes: ["car", "motorcycle"]
+  
+  # ========================================
+  # EXCLUSION ZONE - Camera Area
+  # ========================================
+  - zone_id: "camera_exclusion"
+    zone_type: "exclusion"
+    enabled: true
+    
+    bounds:
+      shape: "box"
+      center:
+        x: 0.0       # at camera
+        y: 0.0
+        z: 0.0
+      size:
+        x: 20.0      # 10m in front and behind
+        y: 20.0      # 10m left and right
+        z: 10.0
+    
+    reason: "Camera capture zone - vehicles too close to camera"
+  
+  # ========================================
+  # EXCLUSION ZONE - Road Edges
+  # ========================================
+  - zone_id: "road_edge_left"
+    zone_type: "exclusion"
+    enabled: true
+    
+    bounds:
+      shape: "box"
+      center:
+        x: 50.0
+        y: -15.0     # far left of road
+        z: 0.0
+      size:
+        x: 100.0
+        y: 6.0
+        z: 5.0
+    
+    reason: "Off-road area - no vehicle spawning"
+  
+  - zone_id: "road_edge_right"
+    zone_type: "exclusion"
+    enabled: true
+    
+    bounds:
+      shape: "box"
+      center:
+        x: 50.0
+        y: 15.0      # far right of road
+        z: 0.0
+      size:
+        x: 100.0
+        y: 6.0
+        z: 5.0
+    
+    reason: "Off-road area - no vehicle spawning"

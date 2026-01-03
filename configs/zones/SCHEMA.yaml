@@ -1,0 +1,136 @@
+# ============================================
+# VantageCV Zone Manifest Schema
+# ============================================
+#
+# This file defines the structure for zone manifests.
+# Zone manifests are companion files to assets that
+# explicitly define where vehicles can spawn.
+#
+# CORE PRINCIPLE: Zones are DATA, NOT LOGIC
+# - Zones are EXPLICITLY DEFINED
+# - No automatic inference from meshes
+# - No guessing, no magic
+#
+# ============================================
+# FILE FORMAT
+# ============================================
+#
+# Zone manifests can be YAML or JSON.
+# Recommended: YAML for human-readability.
+#
+# Naming convention:
+#   <asset_name>.zones.yaml
+#   <asset_name>.zones.json
+#
+# ============================================
+# SCHEMA DEFINITION
+# ============================================
+
+# Root structure for a single asset
+asset_id: "string (required)"  # Unique asset identifier
+zones:
+  # Array of zone definitions
+  - zone_id: "string (required)"     # Unique zone ID
+    zone_type: "road|parking|exclusion"  # Zone type (required)
+    
+    # Bounds specification (required)
+    bounds:
+      shape: "box|polygon"           # Shape type
+      
+      # For BOX shape:
+      center:
+        x: 0.0                       # meters
+        y: 0.0
+        z: 0.0
+      size:
+        x: 100.0                     # length (meters)
+        y: 12.0                      # width (meters)
+        z: 5.0                       # height (meters)
+      rotation:                      # optional
+        pitch: 0.0
+        yaw: 0.0
+        roll: 0.0
+      
+      # For POLYGON shape:
+      vertices:                      # list of (x, y) points
+        - [0, 0]
+        - [10, 0]
+        - [10, 10]
+        - [0, 10]
+      z_min: 0.0                     # ground level
+      z_max: 10.0                    # ceiling
+    
+    # Allowed vehicle classes (optional, defaults to all)
+    allowed_classes:
+      - "car"
+      - "truck"
+      - "bus"
+      - "motorcycle"
+      - "bicycle"
+    
+    # Maximum vehicles (optional, null = unlimited)
+    max_vehicles: null
+    
+    # Enable/disable zone (optional, default: true)
+    enabled: true
+    
+    # ========================================
+    # ROAD ZONE SPECIFIC FIELDS
+    # ========================================
+    # (Only for zone_type: road)
+    
+    direction: "forward|backward|bidirectional"
+    speed_limit_mps: null            # meters/second (optional)
+    lanes:
+      - y_offset: -4.0               # lane center offset
+        width: 4.0                   # lane width (meters)
+      - y_offset: 0.0
+        width: 4.0
+      - y_offset: 4.0
+        width: 4.0
+    
+    # ========================================
+    # PARKING ZONE SPECIFIC FIELDS
+    # ========================================
+    # (Only for zone_type: parking)
+    
+    allow_random_placement: false    # default: slots only
+    slot_jitter_meters: 0.0          # position jitter
+    slots:
+      - slot_id: "slot_01"           # unique slot ID
+        transform:
+          position:
+            x: 10.0
+            y: -4.0
+            z: 0.0
+          rotation:
+            pitch: 0.0
+            yaw: 90.0                # facing direction
+            roll: 0.0
+        allowed_classes:             # optional per-slot override
+          - "car"
+    
+    # ========================================
+    # EXCLUSION ZONE SPECIFIC FIELDS
+    # ========================================
+    # (Only for zone_type: exclusion)
+    
+    reason: "Building footprint"     # human-readable reason
+
+# ============================================
+# MULTI-ASSET FORMAT
+# ============================================
+# For files containing multiple assets:
+
+assets:
+  - asset_id: "road_segment_01"
+    zones:
+      - zone_id: "road_01"
+        zone_type: "road"
+        # ...
+  
+  - asset_id: "parking_lot_A"
+    zones:
+      - zone_id: "parking_A"
+        zone_type: "parking"
+        # ...
