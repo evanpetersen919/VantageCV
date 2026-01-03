@@ -1,0 +1,51 @@
+# Level Configuration for automobileV2
+# Static configuration that should never change during generation
+
+level:
+  name: "automobileV2"
+  path: "/Game/automobileV2.automobileV2"
+
+# Actors that should NEVER be modified (position, rotation, scale, visibility)
+locked_actors:
+  - path: "/Game/automobileV2.automobileV2:PersistentLevel.StaticMeshActor_10"
+    description: "Background/environment - do not touch"
+    lock: [position, rotation, scale, visibility]
+
+# Vehicle actors with their correct default rotations (what you set manually)
+# These are the "parked" positions - spawn system should use these as reference
+vehicle_defaults:
+  # -90° yaw vehicles
+  - actor: "StaticMeshActor_1"
+    yaw: -90
+  - actor: "StaticMeshActor_7"
+    yaw: -90
+  - actor: "StaticMeshActor_11"
+    yaw: -90
+  - actor: "StaticMeshActor_23"
+    yaw: -90
+  - actor: "StaticMeshActor_27"
+    yaw: -90
+  - actor: "StaticMeshActor_34"
+    yaw: -90
+  - actor: "StaticMeshActor_13"
+    yaw: -90
+  - actor: "StaticMeshActor_19"
+    yaw: -90
+  - actor: "StaticMeshActor_8"
+    yaw: -90
+  
+  # +90° yaw vehicles
+  - actor: "StaticMeshActor_5"
+    yaw: 90
+  - actor: "StaticMeshActor_9"
+    yaw: 90
+  - actor: "StaticMeshActor_26"
+    yaw: 90
+  - actor: "StaticMeshActor_2"
+    yaw: 90
+  
+  # 180° yaw vehicles
+  - actor: "StaticMeshActor_25"
+    yaw: 180
+  - actor: "SkeletalMeshActor_5"
+    yaw: 180

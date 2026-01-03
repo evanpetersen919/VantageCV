@@ -140,21 +140,30 @@ public:
     // ========================================
     // MODULE 2: Vehicle Spawning
     // ========================================
+    // NOTE: These methods spawn vehicles at arbitrary coordinates.
+    // For anchor-driven spawning, use UAnchorSpawnSystem instead.
 
     /**
-     * Spawn a vehicle in the scene
+     * @deprecated Use UAnchorSpawnSystem::SpawnParkingVehicles() or SpawnLaneVehicles()
+     *             for anchor-based spawning with deterministic randomization.
+     * 
+     * Spawn a vehicle in the scene at arbitrary coordinates.
      * @param VehicleData Vehicle configuration
      * @return Spawned actor or nullptr on failure
      */
-    UFUNCTION(BlueprintCallable, Category = "Research|Vehicles")
+    UFUNCTION(BlueprintCallable, Category = "Research|Vehicles",
+        meta=(DeprecatedFunction, DeprecationMessage="Use UAnchorSpawnSystem for anchor-based spawning"))
     AActor* SpawnVehicle(const FResearchVehicleData& VehicleData);
 
     /**
-     * Spawn multiple vehicles
+     * @deprecated Use UAnchorSpawnSystem for anchor-based batch spawning.
+     * 
+     * Spawn multiple vehicles at arbitrary coordinates.
      * @param Vehicles Array of vehicle data
      * @return Number of vehicles successfully spawned
      */
-    UFUNCTION(BlueprintCallable, Category = "Research|Vehicles")
+    UFUNCTION(BlueprintCallable, Category = "Research|Vehicles",
+        meta=(DeprecatedFunction, DeprecationMessage="Use UAnchorSpawnSystem for anchor-based spawning"))
     int32 SpawnVehicles(const TArray<FResearchVehicleData>& Vehicles);
 
     /**

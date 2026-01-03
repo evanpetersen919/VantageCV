@@ -7,6 +7,21 @@
  *              of ground planes, sky colors, lighting, distractors, and 
  *              camera parameters to prevent background overfitting.
  * 
+ * IMPORTANT: Vehicle spawning has been migrated to the AnchorSpawnSystem.
+ * Vehicle-related methods in this class are DEPRECATED.
+ * 
+ * Use UAnchorSpawnSystem for:
+ *   - Parking slot spawning (anchor-driven)
+ *   - Road lane spawning (start/end anchors)
+ *   - Sidewalk pedestrian spawning
+ *   - Deterministic seeded randomization
+ * 
+ * This class still handles:
+ *   - Lighting randomization (sun angle, intensity, temperature)
+ *   - Sky/atmosphere randomization
+ *   - Ground material randomization
+ *   - Distractor object spawning
+ * 
  * References:
  *   - Tobin et al. "Domain Randomization for Transferring Deep Neural 
  *     Networks from Simulation to the Real World" (2017)
@@ -117,16 +132,20 @@ struct FDistractorConfig
 };
 
 /**
- * Configuration structure for vehicle randomization (Professional/Research-grade)
+ * Configuration structure for vehicle randomization
+ * @deprecated Use UAnchorSpawnSystem with FAnchorSpawnConfig instead.
+ *             This config remains for backward compatibility only.
  */
 USTRUCT(BlueprintType)
 struct FVehicleRandomizationConfig
 {
 	GENERATED_BODY()
 
-	/** Enable vehicle position randomization */
+	/** Enable vehicle position randomization
+	 *  @deprecated Use AnchorSpawnSystem - vehicles spawn at anchor actors
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	bool bEnabled = true;
+	bool bEnabled = false;  // DISABLED by default - use AnchorSpawnSystem
 
 	/** Number of vehicles to place per scene (min, max) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -269,8 +288,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
 	void RandomizeLighting();
 
-	/** Randomize vehicle positions for maximum training variety (Research-grade) */
-	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
+	/** @deprecated Use UAnchorSpawnSystem::SpawnParkingVehicles() and SpawnLaneVehicles() instead.
+	 *  This method uses grid-based placement, not anchor-driven spawning.
+	 *  Disabled by default (Config.Vehicles.bEnabled = false).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization", 
+		meta=(DeprecatedFunction, DeprecationMessage="Use UAnchorSpawnSystem for anchor-based spawning"))
 	void RandomizeVehicles();
 
 	/** AUTHORITATIVE CLEANUP: Hide ALL vehicle-tagged actors (world sweep)
@@ -287,12 +310,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
 	int32 GetVisibleVehicleCountWorldSweep() const;
 
-	/** Register a vehicle actor for randomization */
-	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
+	/** @deprecated Use UAnchorSpawnSystem for vehicle management.
+	 *  Legacy method that registers vehicles by "Vehicle" tag.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization",
+		meta=(DeprecatedFunction, DeprecationMessage="Use UAnchorSpawnSystem for anchor-based spawning"))
 	void RegisterVehicle(AActor* Vehicle);
 
-	/** Unregister a vehicle actor */
-	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization")
+	/** @deprecated Use UAnchorSpawnSystem for vehicle management. */
+	UFUNCTION(BlueprintCallable, Category = "VantageCV|DomainRandomization",
+		meta=(DeprecatedFunction, DeprecationMessage="Use UAnchorSpawnSystem for anchor-based spawning"))
 	void UnregisterVehicle(AActor* Vehicle);
 
 	/** Get count of currently visible vehicles (for adaptive camera zoom) */

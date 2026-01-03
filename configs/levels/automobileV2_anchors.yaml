@@ -1,0 +1,80 @@
+# Anchor Configuration for automobileV2 Level
+# All coordinates derived from existing actors - NO hardcoded values
+# DO NOT modify this file unless anchor actors are repositioned in UE5
+
+level:
+  name: "automobileV2"
+  path: "/Game/automobileV2.automobileV2"
+
+# ============================================================================
+# LOCKED ACTORS - Never modify these
+# ============================================================================
+locked_actors:
+  - name: "StaticMeshActor_10"
+    description: "Background/environment mesh - immutable"
+    lock: [position, rotation, scale, visibility]
+
+# ============================================================================
+# PARKING SLOT ANCHORS
+# ============================================================================
+# Each anchor = center of one parking slot
+# Vehicle spawn location = anchor world location (+ optional jitter)
+# Vehicle facing = anchor forward vector (red arrow direction)
+
+parking:
+  anchors:
+    - "StaticMeshActor_15"
+    - "StaticMeshActor_14"
+    - "StaticMeshActor_16"
+    - "StaticMeshActor_17"
+    - "StaticMeshActor_21"
+  
+  # Spawning parameters
+  position_jitter_cm: 10.0       # Max XY offset from anchor center
+  yaw_jitter_degrees: 5.0        # Max yaw offset after mode selection
+  reverse_probability: 0.3       # 30% chance to reverse park
+
+# ============================================================================
+# ROAD LANE ANCHORS
+# ============================================================================
+# Each lane = directed segment from start anchor to end anchor
+# Red arrow on anchors indicates driving direction
+
+lanes:
+  - id: "lane_1"
+    start: "StaticMeshActor_32"
+    end: "StaticMeshActor_28"
+    width_cm: 350.0
+    
+  - id: "lane_2"
+    start: "StaticMeshActor_30"
+    end: "StaticMeshActor_36"
+    width_cm: 350.0
+    
+  - id: "lane_3"
+    start: "StaticMeshActor_38"
+    end: "StaticMeshActor_42"
+    width_cm: 350.0
+    
+  - id: "lane_4"
+    start: "StaticMeshActor_40"
+    end: "StaticMeshActor_37"
+    width_cm: 350.0
+
+  # Spawning parameters
+  lateral_jitter_cm: 30.0        # Max lateral offset from lane center
+  yaw_jitter_degrees: 2.0        # Max yaw deviation from lane direction
+
+# ============================================================================
+# SIDEWALK PROP ANCHORS
+# ============================================================================
+# Two anchors define axis-aligned bounding region
+# Props spawn only within this rectangular area
+
+sidewalk:
+  anchor_1: "StaticMeshActor_12"
+  anchor_2: "StaticMeshActor_6"
+  
+  # Spawning parameters
+  ground_raycast: true           # Use raycast for Z alignment
+  random_yaw: true               # Random rotation for props

@@ -155,7 +155,8 @@ void ADomainRandomization::ApplyRandomization()
 	RandomizeGround();
 	RandomizeSky();
 	RandomizeLighting();
-	RandomizeVehicles();  // Professional training data: randomize vehicle positions
+	// NOTE: RandomizeVehicles() REMOVED - use UAnchorSpawnSystem instead
+	// Vehicle spawning is now anchor-driven via configs/levels/*.yaml
 	SpawnDistractors();
 
 	UE_LOG(LogDomainRandomization, Log, TEXT("Domain randomization complete"));
@@ -780,12 +781,22 @@ bool ADomainRandomization::IsPositionValid(const FVector& Position, float MinSpa
 	return true;
 }
 
+/**
+ * DEPRECATED: This method uses grid-based placement, not anchor-driven spawning.
+ * Use UAnchorSpawnSystem::SpawnParkingVehicles() and SpawnLaneVehicles() instead.
+ * 
+ * This code remains for backward compatibility and will be removed in a future release.
+ */
 void ADomainRandomization::RandomizeVehicles()
 {
+	// Log deprecation warning every time this is called
+	UE_LOG(LogDomainRandomization, Warning, 
+		TEXT("RandomizeVehicles() is DEPRECATED - use UAnchorSpawnSystem for anchor-based spawning"));
+
 	if (!Config.Vehicles.bEnabled)
 	{
 		UE_LOG(LogDomainRandomization, Verbose, 
-			TEXT("Vehicle randomization disabled"));
+			TEXT("Vehicle randomization disabled (expected - use AnchorSpawnSystem)"));
 		return;
 	}
 

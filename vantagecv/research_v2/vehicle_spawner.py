@@ -1,7 +1,28 @@
 """
 Research v2 - MODULE 2: Vehicle Spawner
 
-Responsibilities:
+╔════════════════════════════════════════════════════════════════════════════╗
+║                           ⚠️  DEPRECATED  ⚠️                               ║
+║                                                                            ║
+║  This module has been superseded by anchor_spawn_controller.py            ║
+║                                                                            ║
+║  The anchor-based spawning system provides:                                ║
+║    - Deterministic spawning using FRandomStream                            ║
+║    - Anchor-driven placement (no hardcoded coordinates)                    ║
+║    - Parking slot spawning with pull-in/reverse-in modes                   ║
+║    - Road lane spawning with parametric t placement                        ║
+║    - Sidewalk pedestrian spawning within bounds                            ║
+║    - Single source of truth for all transforms                             ║
+║                                                                            ║
+║  Configuration: configs/levels/<level_name>_anchors.yaml                   ║
+║  Controller: vantagecv/research_v2/anchor_spawn_controller.py              ║
+║  C++ Backend: AnchorSpawnSystem.h/.cpp                                     ║
+║                                                                            ║
+║  This file remains for backward compatibility reference only.              ║
+║  It will be removed in a future release.                                   ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+Legacy Responsibilities (now handled by AnchorSpawnSystem):
 - Spawn N vehicles per frame
 - Enforce realistic lane placement
 - Maintain class balance across dataset
@@ -26,6 +47,16 @@ Logging (REQUIRED):
 - For each vehicle: instance_id, class, world transform, dimensions
 - Spawn success / failure reason
 """
+
+import warnings
+
+# Issue deprecation warning on import
+warnings.warn(
+    "vehicle_spawner.py is deprecated. Use anchor_spawn_controller.py instead. "
+    "See configs/levels/*_anchors.yaml for anchor configuration.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 from dataclasses import dataclass, field
 from typing import Optional

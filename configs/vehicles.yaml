@@ -1,0 +1,43 @@
+# Vehicle Configuration
+# Auto-generated from UE5 level analysis
+# rotation_offset: Yaw degrees to add so vehicle faces forward (+X direction)
+#
+# Usage: When spawning a vehicle, look up its mesh name here and apply the rotation_offset
+# to ensure it faces the correct direction in parking slots
+
+vehicles:
+  # Vehicles with -90° offset (most common - face left, need to turn right)
+  vehicle_type_1:
+    rotation_offset: -90
+    category: car
+    length: 450
+    width: 180
+  
+  # Vehicles with +90° offset (face right, need to turn left)
+  vehicle_type_2:
+    rotation_offset: 90
+    category: car
+    length: 450
+    width: 180
+  
+  # Vehicles with 180° offset (face backward, need to flip)
+  vehicle_type_3:
+    rotation_offset: 180
+    category: car
+    length: 450
+    width: 180
+
+  # Default for unknown vehicles (face forward already)
+  default:
+    rotation_offset: 0
+    category: car
+    length: 450
+    width: 180
+
+# NOTE: You have 15 vehicles in your level with these offsets:
+# -90°: 10 vehicles (StaticMeshActor 1,7,11,23,27,34,13,19,8)
+# +90°: 3 vehicles (StaticMeshActor 5,9,26,2)
+# 180°: 2 vehicles (StaticMeshActor 25, SkeletalMeshActor 5)
+#
+# To get actual mesh names, you'll need to check each actor in UE5 Content Browser
+# For now, use default rotation_offset: 0 and manually adjust per vehicle type
