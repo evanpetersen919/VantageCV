@@ -41,25 +41,26 @@ parking:
 # Red arrow on anchors indicates driving direction
 
 lanes:
-  - id: "lane_1"
-    start: "StaticMeshActor_32"
-    end: "StaticMeshActor_28"
-    width_cm: 350.0
-    
-  - id: "lane_2"
-    start: "StaticMeshActor_30"
-    end: "StaticMeshActor_36"
-    width_cm: 350.0
-    
-  - id: "lane_3"
-    start: "StaticMeshActor_38"
-    end: "StaticMeshActor_42"
-    width_cm: 350.0
-    
-  - id: "lane_4"
-    start: "StaticMeshActor_40"
-    end: "StaticMeshActor_37"
-    width_cm: 350.0
+  definitions:
+    - id: "lane_1"
+      start: "StaticMeshActor_32"
+      end: "StaticMeshActor_28"
+      width_cm: 350.0
+      
+    - id: "lane_2"
+      start: "StaticMeshActor_30"
+      end: "StaticMeshActor_36"
+      width_cm: 350.0
+      
+    - id: "lane_3"
+      start: "StaticMeshActor_38"
+      end: "StaticMeshActor_42"
+      width_cm: 350.0
+      
+    - id: "lane_4"
+      start: "StaticMeshActor_40"
+      end: "StaticMeshActor_37"
+      width_cm: 350.0
 
   # Spawning parameters
   lateral_jitter_cm: 30.0        # Max lateral offset from lane center

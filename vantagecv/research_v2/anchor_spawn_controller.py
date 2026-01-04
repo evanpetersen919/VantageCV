@@ -89,15 +89,23 @@ class AnchorSpawnConfig:
         config.parking_reverse_probability = parking.get('reverse_probability', 0.3)
         
         # Lanes
-        lanes_data = data.get('lanes', [])
-        if isinstance(lanes_data, list):
-            for lane in lanes_data:
-                if isinstance(lane, dict) and 'id' in lane:
-                    config.lanes.append(LaneConfig(
-                        lane_id=lane.get('id', ''),
-                        start_anchor=lane.get('start', ''),
-                        end_anchor=lane.get('end', ''),
-                        width=lane.get('width_cm', 350.0)
+        lanes_data = data.get('lanes', {})
+        if isinstance(lanes_data, dict):
+            # New format with 'definitions' key
+            lane_list = lanes_data.get('definitions', [])
+            config.lane_lateral_jitter = lanes_data.get('lateral_jitter_cm', 30.0)
+            config.lane_yaw_jitter = lanes_data.get('yaw_jitter_degrees', 2.0)
+        else:
+            # Legacy format - lanes is a list
+            lane_list = lanes_data if isinstance(lanes_data, list) else []
+        
+        for lane in lane_list:
+            if isinstance(lane, dict) and 'id' in lane:
+                config.lanes.append(LaneConfig(
+                    lane_id=lane.get('id', ''),
+                    start_anchor=lane.get('start', ''),
+                    end_anchor=lane.get('end', ''),
+                    width=lane.get('width_cm', 350.0)
                     ))
         
         # Lane jitter (may be nested under lanes key)
