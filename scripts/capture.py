@@ -2,15 +2,23 @@
 """
 VantageCV - Capture Pipeline
 
-Single entry point for scene validation and smart camera capture.
-Uses SceneValidationController and SmartCameraCaptureController.
+Single entry point for spawning, validation, and smart camera capture.
+
+Workflow:
+1. VehicleSpawnController: Spawn vehicles from pool to anchors
+2. SceneValidationController: Validate scene is ready
+3. SmartCameraCaptureController: Position camera and capture
+4. VehicleSpawnController: Reset vehicles to pool
 
 Usage:
     # Validate scene only:
     python scripts/capture.py --validate-only
 
-    # Single capture:
+    # Single capture (spawns 3 cars by default):
     python scripts/capture.py --output output/frame_001.png --seed 42
+
+    # Capture with specific vehicle count:
+    python scripts/capture.py --output output/frame_001.png --seed 42 --vehicles 5
 
     # Batch capture:
     python scripts/capture.py --batch 10 --output-dir output/batch_001
@@ -27,6 +35,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from vantagecv.research_v2.vehicle_spawn_controller import VehicleSpawnController
 from vantagecv.research_v2.scene_validation_controller import SceneValidationController
 from vantagecv.research_v2.smart_camera_capture_controller import (
     SmartCameraCaptureController,
@@ -75,7 +84,7 @@ def validate_scene(args) -> int:
 
 
 def single_capture(args) -> int:
-    """Capture a single frame"""
+    """Capture a single frame with full spawn/capture/reset workflow"""
     print("\n" + "=" * 60)
     print("SMART CAMERA CAPTURE")
     print("=" * 60)
@@ -84,52 +93,85 @@ def single_capture(args) -> int:
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
-    controller = SmartCameraCaptureController(
+    # Initialize controllers
+    spawner = VehicleSpawnController(
+        host=args.host,
+        port=args.port,
+        level_path=args.level
+    )
+    
+    capture_controller = SmartCameraCaptureController(
         host=args.host,
         port=args.port,
         level_path=args.level,
         data_capture_actor=args.data_capture
     )
     
-    result = controller.capture(
-        output_path=str(output_path),
-        seed=args.seed,
-        width=args.width,
-        height=args.height,
-        validate_scene=not args.skip_validation
-    )
+    try:
+        # Step 1: Hide ALL vehicles in pool (clean slate)
+        print("\n--- Step 1: Reset Vehicle Pool ---")
+        spawner.hide_all_vehicles()
+        
+        # Step 2: Spawn vehicles
+        print(f"\n--- Step 2: Spawn {args.vehicles} Vehicles ---")
+        spawn_result = spawner.spawn_parking(
+            seed=args.seed,
+            count=args.vehicles,
+            vehicle_types=args.vehicle_types.split(",") if args.vehicle_types else ["car"]
+        )
+        
+        if not spawn_result.success:
+            print(f"\n❌ Spawn failed: {spawn_result.failure_reason}")
+            return 1
+        
+        print(f"   Spawned {len(spawn_result.spawned_vehicles)} vehicles")
+        
+        # Step 3: Capture
+        print("\n--- Step 3: Camera Capture ---")
+        result = capture_controller.capture(
+            output_path=str(output_path),
+            seed=args.seed,
+            width=args.width,
+            height=args.height,
+            validate_scene=not args.skip_validation
+        )
+        
+        print("\n" + "=" * 60)
+        print("CAPTURE RESULT")
+        print("=" * 60)
+        print(f"  Status: {result.status.value}")
+        print(f"  Image:  {result.image_path or 'Not captured'}")
+        
+        if result.camera_placement:
+            loc = result.camera_placement.location
+            rot = result.camera_placement.rotation
+            print(f"  Camera: ({loc['X']:.1f}, {loc['Y']:.1f}, {loc['Z']:.1f}) "
+                  f"Pitch={rot['Pitch']:.1f}° Yaw={rot['Yaw']:.1f}° FOV={result.camera_placement.fov:.1f}°")
+        
+        if result.visibility_results:
+            print("\n  Visibility:")
+            for v in result.visibility_results:
+                status = "✓" if v.visible_percentage >= 30 else "✗"
+                print(f"    {status} {v.vehicle_name}: {v.visible_percentage:.1f}%")
+        
+        if result.failure_reason:
+            print(f"\n  Failure: {result.failure_reason}")
+        
+        if result.status == CaptureStatus.SUCCESS:
+            print("\n✅ Capture SUCCESS")
+            return 0
+        else:
+            print(f"\n❌ Capture FAILED: {result.status.value}")
+            return 1
     
-    print("\n" + "=" * 60)
-    print("CAPTURE RESULT")
-    print("=" * 60)
-    print(f"  Status: {result.status.value}")
-    print(f"  Image:  {result.image_path or 'Not captured'}")
-    
-    if result.camera_placement:
-        loc = result.camera_placement.location
-        rot = result.camera_placement.rotation
-        print(f"  Camera: ({loc['X']:.1f}, {loc['Y']:.1f}, {loc['Z']:.1f}) "
-              f"Pitch={rot['Pitch']:.1f}° Yaw={rot['Yaw']:.1f}° FOV={result.camera_placement.fov:.1f}°")
-    
-    if result.visibility_results:
-        print("\n  Visibility:")
-        for v in result.visibility_results:
-            status = "✓" if v.visible_percentage >= 30 else "✗"
-            print(f"    {status} {v.vehicle_name}: {v.visible_percentage:.1f}%")
-    
-    if result.failure_reason:
-        print(f"\n  Failure: {result.failure_reason}")
-    
-    if result.status == CaptureStatus.SUCCESS:
-        print("\n✅ Capture SUCCESS")
-        return 0
-    else:
-        print(f"\n❌ Capture FAILED: {result.status.value}")
-        return 1
+    finally:
+        # Step 4: Always reset vehicles back to pool
+        print("\n--- Step 4: Reset Vehicles to Pool ---")
+        spawner.reset_all()
 
 
 def batch_capture(args) -> int:
-    """Capture multiple frames"""
+    """Capture multiple frames with spawn/capture/reset per frame"""
     print("\n" + "=" * 60)
     print(f"BATCH CAPTURE ({args.batch} frames)")
     print("=" * 60)
@@ -138,14 +180,21 @@ def batch_capture(args) -> int:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    controller = SmartCameraCaptureController(
+    # Initialize controllers
+    spawner = VehicleSpawnController(
+        host=args.host,
+        port=args.port,
+        level_path=args.level
+    )
+    
+    capture_controller = SmartCameraCaptureController(
         host=args.host,
         port=args.port,
         level_path=args.level,
         data_capture_actor=args.data_capture
     )
     
-    # First, validate scene once
+    # Pre-flight validation (without vehicles)
     if not args.skip_validation:
         print("\n--- Pre-flight Validation ---")
         validator = SceneValidationController(
@@ -163,6 +212,7 @@ def batch_capture(args) -> int:
     # Capture frames
     success_count = 0
     fail_count = 0
+    vehicle_types = args.vehicle_types.split(",") if args.vehicle_types else ["car"]
     
     for i in range(args.batch):
         frame_seed = args.seed + i
@@ -170,20 +220,38 @@ def batch_capture(args) -> int:
         
         print(f"\n--- Frame {i + 1}/{args.batch} (seed={frame_seed}) ---")
         
-        result = controller.capture(
-            output_path=str(output_path),
-            seed=frame_seed,
-            width=args.width,
-            height=args.height,
-            validate_scene=False  # Already validated
-        )
+        try:
+            # Hide all and spawn fresh vehicles for each frame
+            spawner.hide_all_vehicles()
+            
+            spawn_result = spawner.spawn_parking(
+                seed=frame_seed,
+                count=args.vehicles,
+                vehicle_types=vehicle_types
+            )
+            
+            if not spawn_result.success:
+                fail_count += 1
+                print(f"  ✗ Spawn failed: {spawn_result.failure_reason}")
+                continue
+            
+            result = capture_controller.capture(
+                output_path=str(output_path),
+                seed=frame_seed,
+                width=args.width,
+                height=args.height,
+                validate_scene=False  # Skip validation for speed
+            )
+            
+            if result.status == CaptureStatus.SUCCESS:
+                success_count += 1
+                print(f"  ✓ Captured: {output_path.name}")
+            else:
+                fail_count += 1
+                print(f"  ✗ Failed: {result.failure_reason}")
         
-        if result.status == CaptureStatus.SUCCESS:
-            success_count += 1
-            print(f"  ✓ Captured: {output_path.name}")
-        else:
-            fail_count += 1
-            print(f"  ✗ Failed: {result.failure_reason}")
+        finally:
+            spawner.reset_all()
     
     # Summary
     print("\n" + "=" * 60)
@@ -206,8 +274,11 @@ Examples:
   # Validate scene:
   python scripts/capture.py --validate-only
 
-  # Single capture:
+  # Single capture with 3 cars:
   python scripts/capture.py --output output/frame_001.png --seed 42
+
+  # Capture with 5 mixed vehicles:
+  python scripts/capture.py --output output/frame_001.png --vehicles 5 --vehicle-types car,truck
 
   # Batch capture:
   python scripts/capture.py --batch 10 --output-dir output/batch_001
@@ -226,6 +297,12 @@ Examples:
                        help="Output image path (single capture)")
     parser.add_argument("--output-dir", default="output/batch",
                        help="Output directory (batch capture)")
+    
+    # Vehicle spawning
+    parser.add_argument("--vehicles", type=int, default=3,
+                       help="Number of vehicles to spawn (default: 3)")
+    parser.add_argument("--vehicle-types", dest="vehicle_types", default="car",
+                       help="Comma-separated vehicle types: car,truck,bus,motorcycle,bicycle (default: car)")
     
     # Capture settings
     parser.add_argument("--seed", type=int, default=42,

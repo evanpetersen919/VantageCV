@@ -36,6 +36,7 @@ import math
 import logging
 import requests
 import json
+import yaml
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
@@ -149,11 +150,19 @@ class SmartCameraCaptureController:
                  host: str = "127.0.0.1",
                  port: int = 30010,
                  level_path: str = "/Game/automobileV2.automobileV2",
-                 data_capture_actor: str = "DataCapture_1"):
+                 data_capture_actor: str = "DataCapture_1",
+                 vehicle_config_path: str = "configs/levels/automobileV2_vehicles.yaml"):
         self.base_url = f"http://{host}:{port}/remote"
         self.level_path = level_path
         self.data_capture_actor = data_capture_actor
+        self.vehicle_config_path = Path(vehicle_config_path)
         self.session = requests.Session()
+        self.vehicle_config = None
+        
+        # Load vehicle pool configuration
+        if self.vehicle_config_path.exists():
+            with open(self.vehicle_config_path, 'r') as f:
+                self.vehicle_config = yaml.safe_load(f)
         
         # Validation controller
         self.validator = SceneValidationController(host=host, port=port, level_path=level_path)
@@ -164,6 +173,7 @@ class SmartCameraCaptureController:
         logger.info("SmartCameraCaptureController initialized")
         logger.info(f"  Level: {level_path}")
         logger.info(f"  DataCapture: {data_capture_actor}")
+        logger.info(f"  Vehicle Config: {vehicle_config_path}")
     
     def set_seed(self, seed: int):
         """Set random seed for deterministic camera placement"""
@@ -206,51 +216,88 @@ class SmartCameraCaptureController:
             logger.error(f"Remote call error: {e}")
             return None
     
+    def _get_property(self, object_path: str, property_name: str) -> Optional[Any]:
+        """Get a property from an actor"""
+        try:
+            response = self.session.put(
+                f"{self.base_url}/object/property",
+                json={
+                    "objectPath": object_path,
+                    "propertyName": property_name
+                },
+                timeout=5.0
+            )
+            if response.status_code == 200:
+                return response.json().get(property_name)
+            return None
+        except Exception as e:
+            logger.error(f"Get property error: {e}")
+            return None
+    
     # ========================================================================
     # VEHICLE DISCOVERY (READ ONLY)
     # ========================================================================
+    
+    def _get_vehicle_pool(self) -> List[str]:
+        """Get all vehicle actor names from config"""
+        if not self.vehicle_config:
+            return []
+        
+        vehicles = self.vehicle_config.get("vehicles", {})
+        actor_names = []
+        
+        for category in ["bicycle", "bus", "car", "motorcycle", "truck"]:
+            for v in vehicles.get(category, []):
+                actor_names.append(v["name"])
+        
+        return actor_names
     
     def _get_visible_vehicles(self) -> List[VehicleInfo]:
         """Get all visible vehicle actors with their transforms (READ ONLY)"""
         vehicles = []
         
-        for prefix in ["StaticMeshActor", "SkeletalMeshActor"]:
-            for i in range(100):
-                actor_name = f"{prefix}_{i}"
-                path = f"{self.level_path}:PersistentLevel.{actor_name}"
-                
-                # Check visibility
-                hidden_result = self._call_remote(path, "IsHidden")
-                if hidden_result is None:
+        # Use vehicle pool from config
+        actor_names = self._get_vehicle_pool()
+        
+        if not actor_names:
+            # Fallback to scanning if no config
+            for prefix in ["StaticMeshActor", "SkeletalMeshActor"]:
+                for i in range(100):
+                    actor_names.append(f"{prefix}_{i}")
+        
+        for actor_name in actor_names:
+            path = f"{self.level_path}:PersistentLevel.{actor_name}"
+            
+            # Check visibility using bHidden property
+            is_hidden = self._get_property(path, "bHidden")
+            if is_hidden is None or is_hidden == True:
+                continue  # Hidden or not found
+            
+            # Get location
+            loc_result = self._call_remote(path, "K2_GetActorLocation")
+            if not loc_result:
+                continue
+            
+            # Get rotation
+            rot_result = self._call_remote(path, "K2_GetActorRotation")
+            if not rot_result:
+                continue
+            
+            # Skip anchors (scale 0.5)
+            scale_result = self._call_remote(path, "GetActorScale3D")
+            if scale_result:
+                sx = scale_result.get("ReturnValue", {}).get("X", 1)
+                if abs(sx - 0.5) < 0.1:
                     continue
-                if hidden_result.get("ReturnValue", True):
-                    continue  # Hidden
-                
-                # Get location
-                loc_result = self._call_remote(path, "K2_GetActorLocation")
-                if not loc_result:
-                    continue
-                
-                # Get rotation
-                rot_result = self._call_remote(path, "K2_GetActorRotation")
-                if not rot_result:
-                    continue
-                
-                # Get scale to filter out anchors
-                scale_result = self._call_remote(path, "GetActorScale3D")
-                if scale_result:
-                    sx = scale_result.get("ReturnValue", {}).get("X", 1)
-                    if abs(sx - 0.5) < 0.1:
-                        continue  # This is an anchor, not a vehicle
-                
-                location = loc_result.get("ReturnValue", {})
-                rotation = rot_result.get("ReturnValue", {})
-                
-                vehicles.append(VehicleInfo(
-                    name=actor_name,
-                    location=location,
-                    rotation=rotation
-                ))
+            
+            location = loc_result.get("ReturnValue", {})
+            rotation = rot_result.get("ReturnValue", {})
+            
+            vehicles.append(VehicleInfo(
+                name=actor_name,
+                location=location,
+                rotation=rotation
+            ))
         
         logger.info(f"Found {len(vehicles)} visible vehicles")
         return vehicles

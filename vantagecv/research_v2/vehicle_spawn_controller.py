@@ -1,0 +1,442 @@
+"""
+VehicleSpawnController - Vehicle Pool Management and Spawning
+
+RESPONSIBILITY:
+- Manage the vehicle pool (all vehicles start hidden)
+- Pick random vehicles based on seed
+- Teleport vehicles to anchor positions
+- Unhide vehicles for scene
+- Reset vehicles to pool after capture
+
+VEHICLE POOL RULES:
+- All vehicles are HIDDEN by default at pool positions (0, Y, 0)
+- Spawning = unhide + teleport to anchor
+- Reset = hide + teleport back to default position
+- Scale is LOCKED - never modify scale
+
+SPAWNING LOGIC:
+- Parking slots: 1 vehicle per anchor, random from pool
+- Lanes: Multiple vehicles along lane path
+- Sidewalks: Pedestrians/bikes only (future)
+"""
+
+import math
+import random
+import logging
+import requests
+import yaml
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Tuple
+from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class VehicleInstance:
+    """A spawned vehicle instance"""
+    name: str
+    category: str
+    spawn_location: Dict[str, float]
+    spawn_rotation: Dict[str, float]
+    anchor_name: Optional[str] = None
+
+
+@dataclass 
+class SpawnResult:
+    """Result of a spawn operation"""
+    success: bool
+    spawned_vehicles: List[VehicleInstance] = field(default_factory=list)
+    failure_reason: Optional[str] = None
+
+
+class VehicleSpawnController:
+    """
+    Vehicle Spawn Controller
+    
+    Manages spawning vehicles from pool to scene anchors.
+    """
+    
+    def __init__(self,
+                 host: str = "127.0.0.1",
+                 port: int = 30010,
+                 level_path: str = "/Game/automobileV2.automobileV2",
+                 anchor_config_path: str = "configs/levels/automobileV2_anchors.yaml",
+                 vehicle_config_path: str = "configs/levels/automobileV2_vehicles.yaml"):
+        self.base_url = f"http://{host}:{port}/remote"
+        self.level_path = level_path
+        self.session = requests.Session()
+        
+        # Load configs
+        self.anchor_config = None
+        self.vehicle_config = None
+        
+        anchor_path = Path(anchor_config_path)
+        vehicle_path = Path(vehicle_config_path)
+        
+        if anchor_path.exists():
+            with open(anchor_path, 'r') as f:
+                self.anchor_config = yaml.safe_load(f)
+        
+        if vehicle_path.exists():
+            with open(vehicle_path, 'r') as f:
+                self.vehicle_config = yaml.safe_load(f)
+        
+        # Track currently spawned vehicles
+        self.spawned_vehicles: List[VehicleInstance] = []
+        
+        logger.info("VehicleSpawnController initialized")
+        logger.info(f"  Level: {level_path}")
+        logger.info(f"  Anchor Config: {anchor_config_path}")
+        logger.info(f"  Vehicle Config: {vehicle_config_path}")
+    
+    # ========================================================================
+    # REMOTE CONTROL API
+    # ========================================================================
+    
+    def _call_remote(self, object_path: str, function_name: str, 
+                     parameters: Dict = None) -> Optional[Dict]:
+        """Call a UE5 function via Remote Control API"""
+        try:
+            payload = {
+                "objectPath": object_path,
+                "functionName": function_name
+            }
+            if parameters:
+                payload["parameters"] = parameters
+            
+            response = self.session.put(
+                f"{self.base_url}/object/call",
+                json=payload,
+                timeout=5.0
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            return None
+                
+        except Exception as e:
+            logger.error(f"Remote call error: {e}")
+            return None
+    
+    def _set_property(self, object_path: str, property_name: str, value: Any) -> bool:
+        """Set a property on an actor"""
+        try:
+            response = self.session.put(
+                f"{self.base_url}/object/property",
+                json={
+                    "objectPath": object_path,
+                    "propertyName": property_name,
+                    "propertyValue": value
+                },
+                timeout=5.0
+            )
+            return response.status_code == 200
+        except Exception as e:
+            logger.error(f"Set property error: {e}")
+            return False
+    
+    def _get_property(self, object_path: str, property_name: str) -> Optional[Any]:
+        """Get a property from an actor"""
+        try:
+            response = self.session.put(
+                f"{self.base_url}/object/property",
+                json={
+                    "objectPath": object_path,
+                    "propertyName": property_name
+                },
+                timeout=5.0
+            )
+            if response.status_code == 200:
+                return response.json().get(property_name)
+            return None
+        except Exception as e:
+            logger.error(f"Get property error: {e}")
+            return None
+    
+    # ========================================================================
+    # VEHICLE POOL
+    # ========================================================================
+    
+    def _get_vehicle_pool(self) -> Dict[str, List[Dict]]:
+        """Get all vehicles from config organized by category"""
+        if not self.vehicle_config:
+            return {}
+        
+        return self.vehicle_config.get("vehicles", {})
+    
+    def _get_all_vehicle_names(self) -> List[str]:
+        """Get all vehicle names from pool config"""
+        pool = self._get_vehicle_pool()
+        names = []
+        for cat in ["bicycle", "bus", "car", "motorcycle", "truck"]:
+            for v in pool.get(cat, []):
+                names.append(v["name"])
+        return names
+    
+    def hide_all_vehicles(self) -> int:
+        """Hide ALL vehicles in pool (cleanup any previous state)"""
+        logger.info("Hiding all vehicles in pool...")
+        count = 0
+        
+        for name in self._get_all_vehicle_names():
+            if self._set_actor_hidden(name, True):
+                count += 1
+        
+        # Clear spawned tracking
+        self.spawned_vehicles.clear()
+        
+        logger.info(f"  Hidden {count} vehicles")
+        return count
+    
+    def _get_available_vehicles(self, category: str = None) -> List[Dict]:
+        """Get available (not currently spawned) vehicles"""
+        pool = self._get_vehicle_pool()
+        spawned_names = {v.name for v in self.spawned_vehicles}
+        
+        available = []
+        categories = [category] if category else ["bicycle", "bus", "car", "motorcycle", "truck"]
+        
+        for cat in categories:
+            for v in pool.get(cat, []):
+                if v["name"] not in spawned_names:
+                    available.append({**v, "category": cat})
+        
+        return available
+    
+    # ========================================================================
+    # ANCHOR POSITIONS
+    # ========================================================================
+    
+    def _get_parking_anchors(self) -> List[str]:
+        """Get parking anchor names"""
+        if not self.anchor_config:
+            return []
+        return self.anchor_config.get("parking", {}).get("anchors", [])
+    
+    def _get_anchor_transform(self, anchor_name: str) -> Optional[Dict]:
+        """Get anchor location and rotation"""
+        path = f"{self.level_path}:PersistentLevel.{anchor_name}"
+        
+        loc = self._call_remote(path, "K2_GetActorLocation")
+        rot = self._call_remote(path, "K2_GetActorRotation")
+        
+        if not loc or not rot:
+            return None
+        
+        return {
+            "location": loc.get("ReturnValue", {}),
+            "rotation": rot.get("ReturnValue", {})
+        }
+    
+    # ========================================================================
+    # SPAWN OPERATIONS
+    # ========================================================================
+    
+    def _set_actor_hidden(self, actor_name: str, hidden: bool) -> bool:
+        """Set actor visibility using SetActorHiddenInGame function"""
+        path = f"{self.level_path}:PersistentLevel.{actor_name}"
+        result = self._call_remote(path, "SetActorHiddenInGame", {"bNewHidden": hidden})
+        return result is not None
+    
+    def _teleport_actor(self, actor_name: str, location: Dict, rotation: Dict) -> bool:
+        """Teleport actor to new position"""
+        path = f"{self.level_path}:PersistentLevel.{actor_name}"
+        
+        # Set location
+        loc_result = self._call_remote(path, "K2_SetActorLocation", {
+            "NewLocation": location,
+            "bSweep": False,
+            "bTeleport": True
+        })
+        
+        # Set rotation
+        rot_result = self._call_remote(path, "K2_SetActorRotation", {
+            "NewRotation": rotation,
+            "bTeleportPhysics": True
+        })
+        
+        return loc_result is not None and rot_result is not None
+    
+    def spawn_parking(self, seed: int, count: int = 3, 
+                     vehicle_types: List[str] = None) -> SpawnResult:
+        """
+        Spawn vehicles in parking slots
+        
+        Args:
+            seed: Random seed for determinism
+            count: Number of vehicles to spawn
+            vehicle_types: List of vehicle categories to use (default: cars only)
+        """
+        random.seed(seed)
+        
+        if vehicle_types is None:
+            vehicle_types = ["car"]
+        
+        logger.info(f"Spawning {count} vehicles in parking (seed={seed})")
+        
+        # Get parking anchors
+        anchors = self._get_parking_anchors()
+        if not anchors:
+            return SpawnResult(success=False, failure_reason="No parking anchors configured")
+        
+        # Get available vehicles
+        available = []
+        for vtype in vehicle_types:
+            available.extend(self._get_available_vehicles(vtype))
+        
+        if not available:
+            return SpawnResult(success=False, failure_reason="No available vehicles in pool")
+        
+        # Shuffle for randomness
+        random.shuffle(anchors)
+        random.shuffle(available)
+        
+        # Spawn vehicles
+        spawned = []
+        anchors_to_use = anchors[:count]
+        
+        for i, anchor_name in enumerate(anchors_to_use):
+            if i >= len(available):
+                logger.warning(f"Not enough vehicles in pool for all anchors")
+                break
+            
+            vehicle = available[i]
+            vehicle_name = vehicle["name"]
+            category = vehicle["category"]
+            
+            # Get anchor transform
+            anchor_transform = self._get_anchor_transform(anchor_name)
+            if not anchor_transform:
+                logger.error(f"Could not get transform for anchor {anchor_name}")
+                continue
+            
+            location = anchor_transform["location"]
+            rotation = anchor_transform["rotation"]
+            
+            # Add slight randomization from config
+            parking_config = self.anchor_config.get("parking", {})
+            jitter = parking_config.get("position_jitter_cm", 10.0)
+            yaw_jitter = parking_config.get("yaw_jitter_degrees", 5.0)
+            
+            location["X"] += random.uniform(-jitter, jitter)
+            location["Y"] += random.uniform(-jitter, jitter)
+            rotation["Yaw"] += random.uniform(-yaw_jitter, yaw_jitter)
+            
+            # Reverse parking probability
+            if random.random() < parking_config.get("reverse_probability", 0.3):
+                rotation["Yaw"] += 180.0
+            
+            # Teleport vehicle
+            if not self._teleport_actor(vehicle_name, location, rotation):
+                logger.error(f"Failed to teleport {vehicle_name}")
+                continue
+            
+            # Unhide vehicle
+            if not self._set_actor_hidden(vehicle_name, False):
+                logger.error(f"Failed to unhide {vehicle_name}")
+                continue
+            
+            instance = VehicleInstance(
+                name=vehicle_name,
+                category=category,
+                spawn_location=location,
+                spawn_rotation=rotation,
+                anchor_name=anchor_name
+            )
+            
+            spawned.append(instance)
+            self.spawned_vehicles.append(instance)
+            
+            logger.info(f"  ✓ {vehicle_name} ({category}) → {anchor_name}")
+        
+        logger.info(f"Spawned {len(spawned)}/{count} vehicles")
+        
+        return SpawnResult(
+            success=len(spawned) > 0,
+            spawned_vehicles=spawned
+        )
+    
+    def reset_all(self) -> bool:
+        """Reset all spawned vehicles back to pool (hide + return to default position)"""
+        logger.info(f"Resetting {len(self.spawned_vehicles)} vehicles to pool")
+        
+        pool = self._get_vehicle_pool()
+        
+        # Build lookup for default transforms
+        defaults = {}
+        for cat, vehicles in pool.items():
+            for v in vehicles:
+                defaults[v["name"]] = v.get("default_transform", {})
+        
+        success_count = 0
+        
+        for instance in self.spawned_vehicles:
+            vehicle_name = instance.name
+            default = defaults.get(vehicle_name, {})
+            
+            # Hide vehicle
+            self._set_actor_hidden(vehicle_name, True)
+            
+            # Return to default position
+            if default:
+                location = default.get("location", {"X": 0, "Y": 0, "Z": 0})
+                rotation = default.get("rotation", {"Pitch": 0, "Yaw": 0, "Roll": 0})
+                self._teleport_actor(vehicle_name, location, rotation)
+            
+            logger.info(f"  ✓ Reset {vehicle_name}")
+            success_count += 1
+        
+        self.spawned_vehicles.clear()
+        logger.info(f"Reset complete: {success_count} vehicles returned to pool")
+        
+        return True
+    
+    def get_spawned_count(self) -> int:
+        """Get count of currently spawned vehicles"""
+        return len(self.spawned_vehicles)
+
+
+def main():
+    """Test vehicle spawning"""
+    import sys
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)-7s | %(message)s',
+        datefmt='%H:%M:%S'
+    )
+    
+    print("=" * 60)
+    print("VEHICLE SPAWN CONTROLLER TEST")
+    print("=" * 60)
+    
+    controller = VehicleSpawnController()
+    
+    # Reset any existing spawns
+    print("\n--- Reset All ---")
+    controller.reset_all()
+    
+    # Spawn 3 cars in parking
+    print("\n--- Spawn Parking (3 cars) ---")
+    result = controller.spawn_parking(seed=42, count=3, vehicle_types=["car"])
+    
+    if result.success:
+        print(f"\n✅ Spawned {len(result.spawned_vehicles)} vehicles")
+        for v in result.spawned_vehicles:
+            print(f"   {v.name} ({v.category}) at {v.anchor_name}")
+    else:
+        print(f"\n❌ Spawn failed: {result.failure_reason}")
+        return 1
+    
+    print("\n--- Press Enter to reset vehicles ---")
+    input()
+    
+    controller.reset_all()
+    print("\n✅ Vehicles reset to pool")
+    
+    return 0
+
+
+if __name__ == "__main__":
+    exit(main())

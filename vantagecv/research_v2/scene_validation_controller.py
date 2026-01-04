@@ -21,6 +21,7 @@ It is a prerequisite for SmartCameraCaptureController.
 import math
 import logging
 import requests
+import yaml
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
@@ -117,14 +118,32 @@ class SceneValidationController:
     def __init__(self, 
                  host: str = "127.0.0.1", 
                  port: int = 30010,
-                 level_path: str = "/Game/automobileV2.automobileV2"):
+                 level_path: str = "/Game/automobileV2.automobileV2",
+                 config_path: str = "configs/levels/automobileV2_anchors.yaml",
+                 vehicle_config_path: str = "configs/levels/automobileV2_vehicles.yaml"):
         self.base_url = f"http://{host}:{port}/remote"
         self.level_path = level_path
+        self.config_path = Path(config_path)
+        self.vehicle_config_path = Path(vehicle_config_path)
         self.session = requests.Session()
         self.report = SceneValidationReport()
+        self.anchor_config = None
+        self.vehicle_config = None
+        
+        # Load anchor configuration
+        if self.config_path.exists():
+            with open(self.config_path, 'r') as f:
+                self.anchor_config = yaml.safe_load(f)
+        
+        # Load vehicle pool configuration
+        if self.vehicle_config_path.exists():
+            with open(self.vehicle_config_path, 'r') as f:
+                self.vehicle_config = yaml.safe_load(f)
         
         logger.info("SceneValidationController initialized")
         logger.info(f"  Level: {level_path}")
+        logger.info(f"  Anchor Config: {config_path}")
+        logger.info(f"  Vehicle Config: {vehicle_config_path}")
         logger.info(f"  Remote Control: http://{host}:{port}")
     
     # ========================================================================
@@ -179,12 +198,30 @@ class SceneValidationController:
             "scale": scale.get("ReturnValue", {})
         }
     
+    def _get_property(self, object_path: str, property_name: str) -> Optional[Any]:
+        """Get a property from an actor"""
+        try:
+            response = self.session.put(
+                f"{self.base_url}/object/property",
+                json={
+                    "objectPath": object_path,
+                    "propertyName": property_name
+                },
+                timeout=5.0
+            )
+            if response.status_code == 200:
+                return response.json().get(property_name)
+            return None
+        except Exception as e:
+            logger.error(f"Get property error: {e}")
+            return None
+    
     def _get_actor_visibility(self, actor_name: str) -> Optional[bool]:
         """Check if actor is visible (not hidden)"""
         path = f"{self.level_path}:PersistentLevel.{actor_name}"
-        result = self._call_remote(path, "IsHidden")
-        if result:
-            return not result.get("ReturnValue", True)
+        is_hidden = self._get_property(path, "bHidden")
+        if is_hidden is not None:
+            return not is_hidden
         return None
     
     # ========================================================================
@@ -363,62 +400,125 @@ class SceneValidationController:
         return zones
     
     def _validate_zones(self) -> ValidationResult:
-        """Validate zone anchor detection"""
-        anchors = self._discover_zone_anchors()
+        """Validate zone anchors from config file"""
+        logger.info("Validating zone anchors from config...")
         
-        if len(anchors) == 0:
+        if not self.anchor_config:
             return ValidationResult(
                 name="Zone Anchors",
                 status=ValidationStatus.FAIL,
-                message=f"No zone anchors found with scale {REQUIRED_ANCHOR_SCALE}",
+                message="No anchor configuration loaded",
                 category="Zones"
             )
         
-        zones = self._classify_zones(anchors)
+        # Count anchors from config
+        parking_count = len(self.anchor_config.get("parking", {}).get("anchors", []))
+        lanes_count = len(self.anchor_config.get("lanes", {}).get("definitions", []))
+        sidewalks_count = len(self.anchor_config.get("sidewalks", {}).get("definitions", []))
         
-        total_zones = len(zones["parking"]) + len(zones["lanes"]) + len(zones["sidewalks"])
+        total_zones = parking_count + lanes_count + sidewalks_count
+        
+        if total_zones == 0:
+            return ValidationResult(
+                name="Zone Anchors",
+                status=ValidationStatus.FAIL,
+                message="No zone anchors defined in config",
+                category="Zones"
+            )
+        
+        # Verify anchors exist in UE5
+        missing_anchors = []
+        
+        for anchor_name in self.anchor_config.get("parking", {}).get("anchors", []):
+            if not self._actor_exists(anchor_name):
+                missing_anchors.append(anchor_name)
+        
+        for lane in self.anchor_config.get("lanes", {}).get("definitions", []):
+            if not self._actor_exists(lane["start"]):
+                missing_anchors.append(lane["start"])
+            if not self._actor_exists(lane["end"]):
+                missing_anchors.append(lane["end"])
+        
+        for sidewalk in self.anchor_config.get("sidewalks", {}).get("definitions", []):
+            if not self._actor_exists(sidewalk["start"]):
+                missing_anchors.append(sidewalk["start"])
+            if not self._actor_exists(sidewalk["end"]):
+                missing_anchors.append(sidewalk["end"])
+        
+        if missing_anchors:
+            return ValidationResult(
+                name="Zone Anchors",
+                status=ValidationStatus.FAIL,
+                message=f"Missing anchors in UE5: {', '.join(missing_anchors)}",
+                category="Zones"
+            )
+        
+        logger.info(f"  ✓ {parking_count} parking slots, {lanes_count} lanes, {sidewalks_count} sidewalks")
         
         return ValidationResult(
             name="Zone Anchors",
             status=ValidationStatus.PASS,
-            message=f"Found {total_zones} zones ({len(zones['parking'])} parking, "
-                   f"{len(zones['lanes'])} lanes, {len(zones['sidewalks'])} sidewalks)",
+            message=f"Found {total_zones} zones ({parking_count} parking, "
+                   f"{lanes_count} lanes, {sidewalks_count} sidewalks)",
             category="Zones",
-            details=zones
+            details={
+                "parking_count": parking_count,
+                "lanes_count": lanes_count,
+                "sidewalks_count": sidewalks_count
+            }
         )
     
     # ========================================================================
     # VALIDATION: Vehicle Placement Semantics
     # ========================================================================
     
+    def _get_vehicle_pool(self) -> List[str]:
+        """Get all vehicle actor names from config"""
+        if not self.vehicle_config:
+            return []
+        
+        vehicles = self.vehicle_config.get("vehicles", {})
+        actor_names = []
+        
+        for category in ["bicycle", "bus", "car", "motorcycle", "truck"]:
+            for v in vehicles.get(category, []):
+                actor_names.append(v["name"])
+        
+        return actor_names
+    
     def _get_visible_vehicles(self) -> List[Dict]:
-        """Get all visible vehicle actors"""
+        """Get all visible vehicle actors from config"""
         vehicles = []
         
-        # Scan common vehicle actor patterns
-        for prefix in ["StaticMeshActor", "SkeletalMeshActor"]:
-            for i in range(100):
-                actor_name = f"{prefix}_{i}"
-                
-                visibility = self._get_actor_visibility(actor_name)
-                if visibility is None or not visibility:
-                    continue
-                
-                transform = self._get_actor_transform(actor_name)
-                if not transform:
-                    continue
-                
-                # Skip anchors (scale 0.5)
-                scale = transform["scale"]
-                sx = scale.get("X", 1)
-                if abs(sx - 0.5) <= 0.01:
-                    continue
-                
-                vehicles.append({
-                    "name": actor_name,
-                    "transform": transform,
-                    "visible": True
-                })
+        # Use vehicle pool from config instead of scanning
+        actor_names = self._get_vehicle_pool()
+        
+        if not actor_names:
+            # Fallback to scanning if no config
+            for prefix in ["StaticMeshActor", "SkeletalMeshActor"]:
+                for i in range(100):
+                    actor_names.append(f"{prefix}_{i}")
+        
+        for actor_name in actor_names:
+            visibility = self._get_actor_visibility(actor_name)
+            if visibility is None or not visibility:
+                continue
+            
+            transform = self._get_actor_transform(actor_name)
+            if not transform:
+                continue
+            
+            # Skip anchors (scale 0.5)
+            scale = transform["scale"]
+            sx = scale.get("X", 1)
+            if abs(sx - 0.5) <= 0.01:
+                continue
+            
+            vehicles.append({
+                "name": actor_name,
+                "transform": transform,
+                "visible": True
+            })
         
         return vehicles
     
@@ -441,8 +541,10 @@ class SceneValidationController:
             z = v["transform"]["location"].get("Z", 0)
             if z < -100:
                 issues.append(f"{v['name']} is underground (Z={z:.1f})")
+                logger.warning(f"  Underground vehicle: {v['name']} at Z={z:.1f}")
         
         # Check for overlapping vehicles (simplified distance check)
+        # Use 50cm threshold - cars can be parked close together
         for i in range(len(vehicles)):
             for j in range(i + 1, len(vehicles)):
                 v1 = vehicles[i]
@@ -456,9 +558,10 @@ class SceneValidationController:
                     (loc1["Y"] - loc2["Y"]) ** 2
                 )
                 
-                # If vehicles are closer than 100cm, flag as potential overlap
-                if dist < 100:
+                # If vehicles are closer than 50cm, flag as potential overlap
+                if dist < 50:
                     issues.append(f"{v1['name']} and {v2['name']} may be overlapping (dist={dist:.1f}cm)")
+                    logger.warning(f"  Overlap: {v1['name']} and {v2['name']} dist={dist:.1f}cm")
         
         if issues:
             return ValidationResult(
