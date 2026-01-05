@@ -214,6 +214,12 @@ class VehicleSpawnController:
             return []
         return self.anchor_config.get("parking", {}).get("anchors", [])
     
+    def _get_lane_definitions(self) -> List[Dict]:
+        """Get lane definitions with start/end anchors"""
+        if not self.anchor_config:
+            return []
+        return self.anchor_config.get("lanes", {}).get("definitions", [])
+    
     def _get_anchor_transform(self, anchor_name: str) -> Optional[Dict]:
         """Get anchor location and rotation"""
         path = f"{self.level_path}:PersistentLevel.{anchor_name}"
@@ -227,6 +233,47 @@ class VehicleSpawnController:
         return {
             "location": loc.get("ReturnValue", {}),
             "rotation": rot.get("ReturnValue", {})
+        }
+    
+    def _compute_lane_transform(self, lane: Dict, t: float, lateral_offset: float = 0) -> Optional[Dict]:
+        """
+        Compute position and rotation along a lane.
+        
+        Args:
+            lane: Lane definition with start/end anchors
+            t: Position along lane (0.0 = start, 1.0 = end)
+            lateral_offset: Perpendicular offset from lane center (cm)
+        
+        Returns:
+            Dict with location and rotation facing lane direction
+        """
+        start_transform = self._get_anchor_transform(lane["start"])
+        end_transform = self._get_anchor_transform(lane["end"])
+        
+        if not start_transform or not end_transform:
+            return None
+        
+        start_loc = start_transform["location"]
+        end_loc = end_transform["location"]
+        
+        # Interpolate position
+        x = start_loc["X"] + t * (end_loc["X"] - start_loc["X"])
+        y = start_loc["Y"] + t * (end_loc["Y"] - start_loc["Y"])
+        z = start_loc["Z"] + t * (end_loc["Z"] - start_loc["Z"])
+        
+        # Compute lane direction (yaw)
+        dx = end_loc["X"] - start_loc["X"]
+        dy = end_loc["Y"] - start_loc["Y"]
+        yaw = math.degrees(math.atan2(dy, dx))
+        
+        # Apply lateral offset (perpendicular to lane)
+        perp_angle = math.radians(yaw + 90)
+        x += lateral_offset * math.cos(perp_angle)
+        y += lateral_offset * math.sin(perp_angle)
+        
+        return {
+            "location": {"X": x, "Y": y, "Z": z},
+            "rotation": {"Pitch": 0, "Yaw": yaw, "Roll": 0}
         }
     
     # ========================================================================
@@ -305,6 +352,9 @@ class VehicleSpawnController:
             vehicle_name = vehicle["name"]
             category = vehicle["category"]
             
+            # Get vehicle's default rotation from config
+            vehicle_default_yaw = vehicle.get("default_transform", {}).get("rotation", {}).get("Yaw", 0)
+            
             # Get anchor transform
             anchor_transform = self._get_anchor_transform(anchor_name)
             if not anchor_transform:
@@ -312,7 +362,8 @@ class VehicleSpawnController:
                 continue
             
             location = anchor_transform["location"]
-            rotation = anchor_transform["rotation"]
+            anchor_yaw = anchor_transform["rotation"]["Yaw"]
+            anchor_pitch = anchor_transform["rotation"]["Pitch"]
             
             # Add slight randomization from config
             parking_config = self.anchor_config.get("parking", {})
@@ -321,11 +372,23 @@ class VehicleSpawnController:
             
             location["X"] += random.uniform(-jitter, jitter)
             location["Y"] += random.uniform(-jitter, jitter)
-            rotation["Yaw"] += random.uniform(-yaw_jitter, yaw_jitter)
             
-            # Reverse parking probability
-            if random.random() < parking_config.get("reverse_probability", 0.3):
-                rotation["Yaw"] += 180.0
+            # Parking rotation: start with vehicle's default, ADD anchor direction
+            yaw_offset = anchor_yaw
+            yaw_offset += random.uniform(-yaw_jitter, yaw_jitter)
+            
+            # Reverse parking probability - also negate pitch when reversed
+            is_reversed = random.random() < parking_config.get("reverse_probability", 0.3)
+            if is_reversed:
+                yaw_offset += 180.0
+            
+            # Use anchor's pitch for sloped parking spots
+            # Negate pitch if reversed (front of car faces opposite direction on slope)
+            final_pitch = -anchor_pitch if is_reversed else anchor_pitch
+            rotation = {"Pitch": final_pitch, "Roll": 0}
+            
+            # ADD to vehicle's default rotation
+            rotation["Yaw"] = vehicle_default_yaw + yaw_offset
             
             # Teleport vehicle
             if not self._teleport_actor(vehicle_name, location, rotation):
@@ -355,6 +418,191 @@ class VehicleSpawnController:
         return SpawnResult(
             success=len(spawned) > 0,
             spawned_vehicles=spawned
+        )
+    
+    def spawn_lane(self, seed: int, count: int = 2,
+                   vehicle_types: List[str] = None) -> SpawnResult:
+        """
+        Spawn vehicles in road lanes
+        
+        Args:
+            seed: Random seed for determinism
+            count: Number of vehicles to spawn
+            vehicle_types: List of vehicle categories to use (default: cars only)
+        """
+        random.seed(seed)
+        
+        if vehicle_types is None:
+            vehicle_types = ["car", "truck", "bus"]
+        
+        logger.info(f"Spawning {count} vehicles in lanes (seed={seed})")
+        
+        # Get lane definitions
+        lanes = self._get_lane_definitions()
+        if not lanes:
+            return SpawnResult(success=False, failure_reason="No lane definitions configured")
+        
+        # Get available vehicles
+        available = []
+        for vtype in vehicle_types:
+            available.extend(self._get_available_vehicles(vtype))
+        
+        if not available:
+            return SpawnResult(success=False, failure_reason="No available vehicles in pool")
+        
+        random.shuffle(available)
+        
+        # Lane config
+        lane_config = self.anchor_config.get("lanes", {})
+        lateral_jitter = lane_config.get("lateral_jitter_cm", 30.0)
+        yaw_jitter = lane_config.get("yaw_jitter_degrees", 2.0)
+        
+        spawned = []
+        vehicle_idx = 0
+        
+        # Track used lane positions to prevent overlap
+        # Each entry: (lane_id, t_value) - new vehicles must be MIN_SPACING apart
+        MIN_SPACING = 0.25  # Minimum t-distance between vehicles on same lane
+        used_positions = []  # List of (lane_id, t)
+        
+        for i in range(count):
+            if vehicle_idx >= len(available):
+                logger.warning("Not enough vehicles in pool")
+                break
+            
+            # Try to find non-overlapping position
+            max_attempts = 10
+            for attempt in range(max_attempts):
+                lane = random.choice(lanes)
+                t = random.uniform(0.2, 0.8)  # Avoid edges
+                
+                # Check for overlap with existing positions on same lane
+                overlap = False
+                for used_lane_id, used_t in used_positions:
+                    if used_lane_id == lane["id"] and abs(t - used_t) < MIN_SPACING:
+                        overlap = True
+                        break
+                
+                if not overlap:
+                    break
+            else:
+                logger.warning(f"Could not find non-overlapping lane position after {max_attempts} attempts")
+                continue
+            
+            lateral_offset = random.uniform(-lateral_jitter, lateral_jitter)
+            
+            transform = self._compute_lane_transform(lane, t, lateral_offset)
+            if not transform:
+                logger.error(f"Could not compute lane transform for {lane['id']}")
+                continue
+            
+            location = transform["location"]
+            
+            # Get vehicle's default rotation from config
+            vehicle = available[vehicle_idx]
+            vehicle_name = vehicle["name"]
+            category = vehicle["category"]
+            vehicle_default_yaw = vehicle.get("default_transform", {}).get("rotation", {}).get("Yaw", 0)
+            
+            # Lane direction yaw (computed from atan2)
+            lane_yaw = transform["rotation"]["Yaw"]
+            
+            # ADD lane direction to vehicle's default rotation
+            rotation = {"Pitch": 0, "Roll": 0}
+            rotation["Yaw"] = vehicle_default_yaw + lane_yaw
+            
+            # Add yaw jitter
+            rotation["Yaw"] += random.uniform(-yaw_jitter, yaw_jitter)
+            
+            # Track this position
+            used_positions.append((lane["id"], t))
+            
+            vehicle_idx += 1
+            
+            # Teleport vehicle
+            if not self._teleport_actor(vehicle_name, location, rotation):
+                logger.error(f"Failed to teleport {vehicle_name}")
+                continue
+            
+            # Unhide vehicle
+            if not self._set_actor_hidden(vehicle_name, False):
+                logger.error(f"Failed to unhide {vehicle_name}")
+                continue
+            
+            instance = VehicleInstance(
+                name=vehicle_name,
+                category=category,
+                spawn_location=location,
+                spawn_rotation=rotation,
+                anchor_name=lane["id"]
+            )
+            
+            spawned.append(instance)
+            self.spawned_vehicles.append(instance)
+            
+            logger.info(f"  ✓ {vehicle_name} ({category}) → {lane['id']} t={t:.2f}")
+        
+        logger.info(f"Spawned {len(spawned)}/{count} vehicles in lanes")
+        
+        return SpawnResult(
+            success=len(spawned) > 0,
+            spawned_vehicles=spawned
+        )
+    
+    def spawn(self, seed: int, count: int = 5,
+              parking_ratio: float = 0.5,
+              vehicle_types: List[str] = None) -> SpawnResult:
+        """
+        Unified spawn: randomly distribute vehicles between parking and lanes.
+        
+        Args:
+            seed: Random seed for determinism
+            count: Total number of vehicles to spawn
+            parking_ratio: Probability of parking vs lane (0.5 = equal chance)
+            vehicle_types: List of vehicle categories (default: car only)
+        
+        Rotation is automatically adjusted based on zone type:
+        - Parking: Face anchor direction ± 5° jitter, 30% reversed
+        - Lane: Face lane direction (start→end) ± 2° jitter
+        """
+        random.seed(seed)
+        
+        if vehicle_types is None:
+            vehicle_types = ["car"]
+        
+        logger.info(f"Spawning {count} vehicles (seed={seed}, parking_ratio={parking_ratio})")
+        
+        # Decide how many go to parking vs lanes
+        parking_count = sum(1 for _ in range(count) if random.random() < parking_ratio)
+        lane_count = count - parking_count
+        
+        logger.info(f"  Distribution: {parking_count} parking, {lane_count} lanes")
+        
+        all_spawned = []
+        
+        # Spawn parking vehicles
+        if parking_count > 0:
+            parking_result = self.spawn_parking(
+                seed=seed,
+                count=parking_count,
+                vehicle_types=vehicle_types
+            )
+            all_spawned.extend(parking_result.spawned_vehicles)
+        
+        # Spawn lane vehicles (use offset seed to avoid collision)
+        if lane_count > 0:
+            lane_result = self.spawn_lane(
+                seed=seed + 1000,
+                count=lane_count,
+                vehicle_types=vehicle_types
+            )
+            all_spawned.extend(lane_result.spawned_vehicles)
+        
+        logger.info(f"Total spawned: {len(all_spawned)}/{count}")
+        
+        return SpawnResult(
+            success=len(all_spawned) > 0,
+            spawned_vehicles=all_spawned
         )
     
     def reset_all(self) -> bool:

@@ -113,10 +113,11 @@ def single_capture(args) -> int:
         spawner.hide_all_vehicles()
         
         # Step 2: Spawn vehicles
-        print(f"\n--- Step 2: Spawn {args.vehicles} Vehicles ---")
-        spawn_result = spawner.spawn_parking(
+        print(f"\n--- Step 2: Spawn {args.vehicles} Vehicles (parking_ratio={args.parking_ratio}) ---")
+        spawn_result = spawner.spawn(
             seed=args.seed,
             count=args.vehicles,
+            parking_ratio=args.parking_ratio,
             vehicle_types=args.vehicle_types.split(",") if args.vehicle_types else ["car"]
         )
         
@@ -224,9 +225,10 @@ def batch_capture(args) -> int:
             # Hide all and spawn fresh vehicles for each frame
             spawner.hide_all_vehicles()
             
-            spawn_result = spawner.spawn_parking(
+            spawn_result = spawner.spawn(
                 seed=frame_seed,
                 count=args.vehicles,
+                parking_ratio=args.parking_ratio,
                 vehicle_types=vehicle_types
             )
             
@@ -274,11 +276,14 @@ Examples:
   # Validate scene:
   python scripts/capture.py --validate-only
 
-  # Single capture with 3 cars:
+  # Single capture with 3 cars (50% parking, 50% lanes):
   python scripts/capture.py --output output/frame_001.png --seed 42
 
-  # Capture with 5 mixed vehicles:
-  python scripts/capture.py --output output/frame_001.png --vehicles 5 --vehicle-types car,truck
+  # Capture with 5 mixed vehicles, all in lanes:
+  python scripts/capture.py --output output/frame_001.png --vehicles 5 --vehicle-types car,truck --parking-ratio 0.0
+
+  # Capture with 4 vehicles, all in parking:
+  python scripts/capture.py --output output/frame_001.png --vehicles 4 --parking-ratio 1.0
 
   # Batch capture:
   python scripts/capture.py --batch 10 --output-dir output/batch_001
@@ -303,6 +308,8 @@ Examples:
                        help="Number of vehicles to spawn (default: 3)")
     parser.add_argument("--vehicle-types", dest="vehicle_types", default="car",
                        help="Comma-separated vehicle types: car,truck,bus,motorcycle,bicycle (default: car)")
+    parser.add_argument("--parking-ratio", type=float, default=0.5,
+                       help="Ratio of vehicles in parking vs lanes: 0.0=all lanes, 1.0=all parking (default: 0.5)")
     
     # Capture settings
     parser.add_argument("--seed", type=int, default=42,

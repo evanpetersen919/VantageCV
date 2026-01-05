@@ -1,204 +1,345 @@
-# Vehicle Pool Configuration for automobileV2 Level
-# LOCKED - DO NOT MODIFY unless vehicles are re-positioned in UE5
-# All transforms are default/spawn positions
-#
-# Author: Evan Petersen
-# Date: January 3, 2026
-# Level: automobileV2
-
 level:
-  name: "automobileV2"
-  path: "/Game/automobileV2.automobileV2"
-
-# ============================================================================
-# VEHICLE POOL - All spawnable vehicle actors
-# ============================================================================
-# These are the actual vehicle meshes in the level.
-# During generation, vehicles are teleported from the pool to anchor positions.
-# After capture, vehicles should be reset to these default transforms.
-
+  name: automobileV2
+  path: /Game/automobileV2.automobileV2
 vehicles:
-
-  # --------------------------------------------------------------------------
-  # BICYCLES (3 actors)
-  # --------------------------------------------------------------------------
   bicycle:
-    - name: "StaticMeshActor_1"
-      default_transform:
-        location: { X: 0.0, Y: 1170.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: -90.0, Roll: 0.0 }
-        scale: { X: 0.29, Y: 0.29, Z: 0.29 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_3"
-      default_transform:
-        location: { X: 0.0, Y: 1160.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: 0.0, Roll: 0.0 }
-        scale: { X: 14.75, Y: 14.75, Z: 14.75 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_5"
-      default_transform:
-        location: { X: 0.0, Y: 1370.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: 90.0, Roll: 0.0 }
-        scale: { X: 2.25, Y: 2.25, Z: 2.25 }
-      lock: [scale]
-
-  # --------------------------------------------------------------------------
-  # BUSES (3 actors)
-  # --------------------------------------------------------------------------
+  - name: StaticMeshActor_1
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1170.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: -90.0
+        Roll: 0.0
+      scale:
+        X: 0.38
+        Y: 0.38
+        Z: 0.38
+    lock:
+    - scale
+  - name: StaticMeshActor_3
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1160.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: 0.0
+        Roll: 0.0
+      scale:
+        X: 21.82
+        Y: 21.82
+        Z: 21.82
+    lock:
+    - scale
+  - name: StaticMeshActor_5
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1370.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: 90.0
+        Roll: 0.0
+      scale:
+        X: 2.25
+        Y: 2.25
+        Z: 2.25
+    lock:
+    - scale
   bus:
-    - name: "StaticMeshActor_7"
-      default_transform:
-        location: { X: 0.0, Y: 1550.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: -90.0, Roll: 0.0 }
-        scale: { X: 1.23, Y: 1.23, Z: 1.23 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_9"
-      default_transform:
-        location: { X: 0.0, Y: 1540.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: 90.0, Roll: 0.0 }
-        scale: { X: 1.22, Y: 1.22, Z: 1.22 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_11"
-      default_transform:
-        location: { X: 0.0, Y: 1460.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: -90.0, Roll: 0.0 }
-        scale: { X: 1.43, Y: 1.43, Z: 1.43 }
-      lock: [scale]
-
-  # --------------------------------------------------------------------------
-  # CARS (9 actors)
-  # --------------------------------------------------------------------------
+  - name: StaticMeshActor_7
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1550.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: -90.0
+        Roll: 0.0
+      scale:
+        X: 1.23
+        Y: 1.23
+        Z: 1.23
+    lock:
+    - scale
+  - name: StaticMeshActor_9
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1540.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: 90.0
+        Roll: 0.0
+      scale:
+        X: 1.22
+        Y: 1.22
+        Z: 1.22
+    lock:
+    - scale
+  - name: StaticMeshActor_11
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1460.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: -90.0
+        Roll: 0.0
+      scale:
+        X: 1.29
+        Y: 1.29
+        Z: 1.29
+    lock:
+    - scale
   car:
-    - name: "StaticMeshActor_13"
-      default_transform:
-        location: { X: 0.0, Y: 1760.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: -90.0, Roll: 0.0 }
-        scale: { X: 1.34, Y: 1.34, Z: 1.34 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_19"
-      default_transform:
-        location: { X: 0.0, Y: 1870.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: -90.0, Roll: 0.0 }
-        scale: { X: 0.05, Y: 0.05, Z: 0.05 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_29"
-      default_transform:
-        location: { X: 0.0, Y: 1780.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: 0.0, Roll: 0.0 }
-        scale: { X: 1.56, Y: 1.56, Z: 1.56 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_33"
-      default_transform:
-        location: { X: 0.0, Y: 1490.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: 0.0, Roll: 0.0 }
-        scale: { X: 1.43, Y: 1.43, Z: 1.43 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_39"
-      default_transform:
-        location: { X: 0.0, Y: 1190.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: 0.0, Roll: 0.0 }
-        scale: { X: 1.63, Y: 1.63, Z: 1.63 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_34"
-      default_transform:
-        location: { X: 0.0, Y: 1740.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: -90.0, Roll: 0.0 }
-        scale: { X: 0.01, Y: 0.01, Z: 0.01 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_26"
-      default_transform:
-        location: { X: 0.0, Y: 1540.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: 90.0, Roll: 0.0 }
-        scale: { X: 1.16, Y: 1.16, Z: 1.16 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_23"
-      default_transform:
-        location: { X: 0.0, Y: 1490.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: -90.0, Roll: 0.0 }
-        scale: { X: 1.47, Y: 1.47, Z: 1.47 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_18"
-      default_transform:
-        location: { X: 0.0, Y: 1650.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: 0.0, Roll: 0.0 }
-        scale: { X: 0.09, Y: 0.09, Z: 0.09 }
-      lock: [scale]
-
-  # --------------------------------------------------------------------------
-  # MOTORCYCLES (3 actors)
-  # --------------------------------------------------------------------------
+  - name: StaticMeshActor_13
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1760.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: -90.0
+        Roll: 0.0
+      scale:
+        X: 1.28
+        Y: 1.28
+        Z: 1.28
+    lock:
+    - scale
+  - name: StaticMeshActor_19
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1870.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: -90.0
+        Roll: 0.0
+      scale:
+        X: 0.03
+        Y: 0.03
+        Z: 0.03
+    lock:
+    - scale
+  - name: StaticMeshActor_29
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1780.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: 0.0
+        Roll: 0.0
+      scale:
+        X: 1.49
+        Y: 1.49
+        Z: 1.49
+    lock:
+    - scale
+  - name: StaticMeshActor_33
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1490.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: 0.0
+        Roll: 0.0
+      scale:
+        X: 1.28
+        Y: 1.28
+        Z: 1.28
+    lock:
+    - scale
+  - name: StaticMeshActor_39
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1190.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: 0.0
+        Roll: 0.0
+      scale:
+        X: 1.52
+        Y: 1.52
+        Z: 1.52
+    lock:
+    - scale
+  - name: StaticMeshActor_34
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1740.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: -90.0
+        Roll: 0.0
+      scale:
+        X: 0.01
+        Y: 0.01
+        Z: 0.01
+    lock:
+    - scale
+  - name: StaticMeshActor_26
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1540.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: 90.0
+        Roll: 0.0
+      scale:
+        X: 0.61
+        Y: 0.61
+        Z: 0.61
+    lock:
+    - scale
+  - name: StaticMeshActor_23
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1490.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: -90.0
+        Roll: 0.0
+      scale:
+        X: 0.85
+        Y: 0.85
+        Z: 0.85
+    lock:
+    - scale
+  - name: StaticMeshActor_18
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1650.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: 0.0
+        Roll: 0.0
+      scale:
+        X: 0.05
+        Y: 0.05
+        Z: 0.05
+    lock:
+    - scale
   motorcycle:
-    - name: "SkeletalMeshActor_5"
-      default_transform:
-        location: { X: 0.0, Y: 1790.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: 180.0, Roll: 0.0 }
-        scale: { X: 22.22, Y: 22.22, Z: 22.22 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_2"
-      default_transform:
-        location: { X: 0.0, Y: 2020.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: 90.0, Roll: 0.0 }
-        scale: { X: 1.05, Y: 1.05, Z: 1.05 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_8"
-      default_transform:
-        location: { X: 0.0, Y: 1720.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: -90.0, Roll: 0.0 }
-        scale: { X: 0.69, Y: 0.69, Z: 0.69 }
-      lock: [scale]
-
-  # --------------------------------------------------------------------------
-  # TRUCKS (3 actors)
-  # --------------------------------------------------------------------------
+  - name: SkeletalMeshActor_5
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1790.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: 180.0
+        Roll: 0.0
+      scale:
+        X: 18.2
+        Y: 18.2
+        Z: 18.2
+    lock:
+    - scale
+  - name: StaticMeshActor_2
+    default_transform:
+      location:
+        X: 0.0
+        Y: 2020.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: 90.0
+        Roll: 0.0
+      scale:
+        X: 0.94
+        Y: 0.94
+        Z: 0.94
+    lock:
+    - scale
+  - name: StaticMeshActor_8
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1720.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: -90.0
+        Roll: 0.0
+      scale:
+        X: 0.5
+        Y: 0.5
+        Z: 0.5
+    lock:
+    - scale
   truck:
-    - name: "StaticMeshActor_25"
-      default_transform:
-        location: { X: 0.0, Y: 1930.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: 180.0, Roll: 0.0 }
-        scale: { X: 0.04, Y: 0.04, Z: 0.04 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_27"
-      default_transform:
-        location: { X: 0.0, Y: 1740.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: -90.0, Roll: 0.0 }
-        scale: { X: 1.41, Y: 1.41, Z: 1.41 }
-      lock: [scale]
-      
-    - name: "StaticMeshActor_41"
-      default_transform:
-        location: { X: 0.0, Y: 1320.0, Z: 0.0 }
-        rotation: { Pitch: 0.0, Yaw: 0.0, Roll: 0.0 }
-        scale: { X: 1.19, Y: 1.19, Z: 1.19 }
-      lock: [scale]
-
-# ============================================================================
-# VEHICLE POOL SUMMARY
-# ============================================================================
-# Total vehicles: 21
-#   - Bicycles:    3
-#   - Buses:       3
-#   - Cars:        9
-#   - Motorcycles: 3
-#   - Trucks:      3
-#
-# Usage:
-#   1. Load this config at startup
-#   2. Pick vehicles from pool based on spawn requirements
-#   3. Teleport to anchor positions (preserve scale!)
-#   4. After capture, reset to default_transform
-# ============================================================================
+  - name: StaticMeshActor_25
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1930.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: 180.0
+        Roll: 0.0
+      scale:
+        X: 0.03
+        Y: 0.03
+        Z: 0.03
+    lock:
+    - scale
+  - name: StaticMeshActor_27
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1740.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: -90.0
+        Roll: 0.0
+      scale:
+        X: 1.41
+        Y: 1.41
+        Z: 1.41
+    lock:
+    - scale
+  - name: StaticMeshActor_41
+    default_transform:
+      location:
+        X: 0.0
+        Y: 1320.0
+        Z: 0.0
+      rotation:
+        Pitch: 0.0
+        Yaw: 0.0
+        Roll: 0.0
+      scale:
+        X: 1.34
+        Y: 1.34
+        Z: 1.34
+    lock:
+    - scale
