@@ -17,6 +17,7 @@ from vantagecv.research_v2.vehicle_spawn_controller import VehicleSpawnControlle
 from vantagecv.research_v2.smart_camera_capture_controller import SmartCameraCaptureController
 from vantagecv.research_v2.prop_zone_controller import PropZoneController
 from vantagecv.research_v2.time_augmentation_controller import TimeAugmentationController
+from vantagecv.research_v2.weather_augmentation_controller import WeatherAugmentationController
 
 
 class TestCleanup:
@@ -26,10 +27,12 @@ class TestCleanup:
     """
     
     def __init__(self, spawner: VehicleSpawnController, prop_controller: PropZoneController,
-                 time_controller: TimeAugmentationController = None):
+                 time_controller: TimeAugmentationController = None,
+                 weather_controller: WeatherAugmentationController = None):
         self.spawner = spawner
         self.prop_controller = prop_controller
         self.time_controller = time_controller
+        self.weather_controller = weather_controller
         self.saved_vehicle_transforms: Dict[str, Dict[str, Any]] = {}
         self.saved_prop_transforms: Dict[str, Dict[str, Any]] = {}
         self.actors_saved = 0
@@ -87,6 +90,15 @@ class TestCleanup:
                 print(f"[TestCleanup] ERROR restoring lighting: {e}")
                 self.restore_failures += 1
         
+        # Restore weather
+        if self.weather_controller:
+            try:
+                self.weather_controller.reset()
+                self.actors_restored += 1
+            except Exception as e:
+                print(f"[TestCleanup] ERROR restoring weather: {e}")
+                self.restore_failures += 1
+        
         # Restore props via prop_controller.reset_all()
         try:
             self.prop_controller.reset_all()
@@ -131,6 +143,12 @@ def main():
         level_path="/Game/automobileV2.automobileV2"
     )
     
+    weather_controller = WeatherAugmentationController(
+        host="127.0.0.1",
+        port=30010,
+        level_path="/Game/automobileV2.automobileV2"
+    )
+    
     # Detect prop anchors and prop pool once at startup
     print("\nDetecting prop anchors...")
     prop_controller.detect_anchors()
@@ -142,6 +160,11 @@ def main():
     print("\nDetecting lighting actors...")
     if not time_controller.detect_lighting_actors():
         print("WARNING: Time augmentation may be limited - some lighting actors not found")
+    
+    # Detect weather actors
+    print("\nDetecting weather actors...")
+    if not weather_controller.detect_weather_actors():
+        print("WARNING: Weather augmentation may be limited - some weather actors not found")
     
     # Print detection summary
     print("\n" + "=" * 60)
@@ -157,10 +180,14 @@ def main():
     print(f"  DirectionalLight: {time_controller.directional_light or 'NOT FOUND'}")
     print(f"  SkyLight: {time_controller.sky_light or 'NOT FOUND'}")
     print(f"  Available times: {', '.join(time_controller.get_available_states())}")
+    print(f"\nWeather:")
+    print(f"  ExponentialHeightFog: {weather_controller.exponential_fog or 'NOT FOUND'}")
+    print(f"  Rain System: {weather_controller.rain_system or 'NOT FOUND'}")
+    print(f"  Available weather: {', '.join(weather_controller.get_available_states())}")
     print("=" * 60)
     
     # Initialize cleanup handler and save all transforms BEFORE any spawning
-    cleanup = TestCleanup(spawner, prop_controller, time_controller)
+    cleanup = TestCleanup(spawner, prop_controller, time_controller, weather_controller)
     cleanup.save_all_transforms()
     
     capture_controller = SmartCameraCaptureController(
@@ -205,7 +232,15 @@ def main():
                     continue
                 print(f"  Time: {time_result.time_state}")
                 
-                # Step 2: Reset and spawn vehicles
+                # Step 2: Weather augmentation
+                weather_result = weather_controller.randomize(seed=seed)
+                if not weather_result.success:
+                    print(f"  ✗ Weather augmentation failed: {weather_result.failure_reason}")
+                    failed += 1
+                    continue
+                print(f"  Weather: {weather_result.weather_state}")
+                
+                # Step 3: Reset and spawn vehicles
                 spawner.hide_all_vehicles()
                 
                 spawn_result = spawner.spawn(
