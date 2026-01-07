@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from vantagecv.research_v2.vehicle_spawn_controller import VehicleSpawnController
 from vantagecv.research_v2.smart_camera_capture_controller import SmartCameraCaptureController
 from vantagecv.research_v2.prop_zone_controller import PropZoneController
+from vantagecv.research_v2.time_augmentation_controller import TimeAugmentationController
 
 
 class TestCleanup:
@@ -24,9 +25,11 @@ class TestCleanup:
     Stores original transforms and restores them exactly on exit.
     """
     
-    def __init__(self, spawner: VehicleSpawnController, prop_controller: PropZoneController):
+    def __init__(self, spawner: VehicleSpawnController, prop_controller: PropZoneController,
+                 time_controller: TimeAugmentationController = None):
         self.spawner = spawner
         self.prop_controller = prop_controller
+        self.time_controller = time_controller
         self.saved_vehicle_transforms: Dict[str, Dict[str, Any]] = {}
         self.saved_prop_transforms: Dict[str, Dict[str, Any]] = {}
         self.actors_saved = 0
@@ -75,6 +78,15 @@ class TestCleanup:
         
         print(f"\n[TestCleanup] Restoring actors to original transforms...")
         
+        # Restore time/lighting first
+        if self.time_controller:
+            try:
+                self.time_controller.reset()
+                self.actors_restored += 1
+            except Exception as e:
+                print(f"[TestCleanup] ERROR restoring lighting: {e}")
+                self.restore_failures += 1
+        
         # Restore props via prop_controller.reset_all()
         try:
             self.prop_controller.reset_all()
@@ -113,12 +125,23 @@ def main():
         level_path="/Game/automobileV2.automobileV2"
     )
     
+    time_controller = TimeAugmentationController(
+        host="127.0.0.1",
+        port=30010,
+        level_path="/Game/automobileV2.automobileV2"
+    )
+    
     # Detect prop anchors and prop pool once at startup
     print("\nDetecting prop anchors...")
     prop_controller.detect_anchors()
     print("\nDetecting prop pool...")
     prop_controller.detect_prop_pool()
     # Note: We use prop pool (existing actors), not asset discovery
+    
+    # Detect lighting actors for time augmentation
+    print("\nDetecting lighting actors...")
+    if not time_controller.detect_lighting_actors():
+        print("WARNING: Time augmentation may be limited - some lighting actors not found")
     
     # Print detection summary
     print("\n" + "=" * 60)
@@ -130,10 +153,14 @@ def main():
     print(f"\nProp Pool (available props):")
     for prop_class, props in prop_controller.prop_pool.items():
         print(f"  {prop_class.capitalize():12}: {len(props)} props")
+    print(f"\nLighting:")
+    print(f"  DirectionalLight: {time_controller.directional_light or 'NOT FOUND'}")
+    print(f"  SkyLight: {time_controller.sky_light or 'NOT FOUND'}")
+    print(f"  Available times: {', '.join(time_controller.get_available_states())}")
     print("=" * 60)
     
     # Initialize cleanup handler and save all transforms BEFORE any spawning
-    cleanup = TestCleanup(spawner, prop_controller)
+    cleanup = TestCleanup(spawner, prop_controller, time_controller)
     cleanup.save_all_transforms()
     
     capture_controller = SmartCameraCaptureController(
@@ -170,7 +197,15 @@ def main():
             print(f"\n[{i+1}/20] Seed={seed}, Vehicles={vehicle_count}, Parking={parking_ratio:.0%}")
             
             try:
-                # Reset and spawn vehicles
+                # Step 1: Time augmentation (before any spawning)
+                time_result = time_controller.randomize(seed=seed)
+                if not time_result.success:
+                    print(f"  ✗ Time augmentation failed: {time_result.failure_reason}")
+                    failed += 1
+                    continue
+                print(f"  Time: {time_result.time_state}")
+                
+                # Step 2: Reset and spawn vehicles
                 spawner.hide_all_vehicles()
                 
                 spawn_result = spawner.spawn(
