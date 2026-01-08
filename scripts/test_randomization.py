@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 """
-Quick randomization test - cycle through 10 random captures for video recording
+Quick randomization test - cycle through 20 random captures for video recording
 
 SAFETY GUARANTEE:
 After every test run, the level is restored to its exact pre-test state.
 All actor transforms are captured before spawning and restored in finally block.
+
+VEHICLE CATEGORY CONSTRAINTS:
+- Bikes: Sidewalks only
+- Motorcycles: Parking slots only
+- Buses: Road lanes only
+- Cars: Parking slots OR road lanes
+- Trucks: Parking slots OR road lanes
 """
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
+from dataclasses import dataclass, field
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -19,6 +27,88 @@ from vantagecv.research_v2.prop_zone_controller import PropZoneController
 from vantagecv.research_v2.time_augmentation_controller import TimeAugmentationController
 from vantagecv.research_v2.weather_augmentation_controller import WeatherAugmentationController
 
+
+# =============================================================================
+# VEHICLE ZONE CONSTRAINTS
+# =============================================================================
+
+# Define which zone types are allowed for each vehicle category
+VEHICLE_ZONE_CONSTRAINTS = {
+    "bicycle": ["sidewalk"],       # Bikes: sidewalk only
+    "motorcycle": ["parking"],     # Motorcycles: parking only
+    "bus": ["lane"],               # Buses: lanes only
+    "car": ["parking", "lane"],    # Cars: parking or lanes
+    "truck": ["parking", "lane"],  # Trucks: parking or lanes
+}
+
+# All vehicle categories to spawn
+ALL_VEHICLE_CATEGORIES = ["bicycle", "motorcycle", "bus", "car", "truck"]
+
+
+# =============================================================================
+# SPAWN STATISTICS TRACKER
+# =============================================================================
+
+@dataclass
+class SpawnStats:
+    """Track spawn attempts and results per category"""
+    attempts: Dict[str, int] = field(default_factory=lambda: {cat: 0 for cat in ALL_VEHICLE_CATEGORIES})
+    successes: Dict[str, int] = field(default_factory=lambda: {cat: 0 for cat in ALL_VEHICLE_CATEGORIES})
+    skipped_no_zone: Dict[str, int] = field(default_factory=lambda: {cat: 0 for cat in ALL_VEHICLE_CATEGORIES})
+    skipped_constraint: Dict[str, int] = field(default_factory=lambda: {cat: 0 for cat in ALL_VEHICLE_CATEGORIES})
+    collision_removed: int = 0
+    
+    def log_attempt(self, category: str, zone_type: str):
+        """Log a spawn attempt"""
+        self.attempts[category] = self.attempts.get(category, 0) + 1
+    
+    def log_success(self, category: str, vehicle_name: str, zone_name: str):
+        """Log a successful spawn"""
+        self.successes[category] = self.successes.get(category, 0) + 1
+    
+    def log_skip_no_zone(self, category: str):
+        """Log a skip due to no available zones"""
+        self.skipped_no_zone[category] = self.skipped_no_zone.get(category, 0) + 1
+        print(f"    [SKIP] {category}: No valid zones available")
+    
+    def log_skip_constraint(self, category: str, zone_type: str):
+        """Log a skip due to zone constraint violation"""
+        self.skipped_constraint[category] = self.skipped_constraint.get(category, 0) + 1
+        allowed = VEHICLE_ZONE_CONSTRAINTS.get(category, [])
+        print(f"    [SKIP] {category}: Zone '{zone_type}' not allowed (allowed: {allowed})")
+    
+    def log_collision(self, actor1: str, actor2: str, resolution: str):
+        """Log a collision detection and resolution"""
+        self.collision_removed += 1
+        print(f"    [COLLISION] {actor1} ↔ {actor2} → {resolution}")
+    
+    def print_summary(self):
+        """Print final spawn statistics"""
+        print("\n  Spawn Summary by Category:")
+        total_spawned = 0
+        total_skipped = 0
+        for cat in ALL_VEHICLE_CATEGORIES:
+            spawned = self.successes.get(cat, 0)
+            no_zone = self.skipped_no_zone.get(cat, 0)
+            constraint = self.skipped_constraint.get(cat, 0)
+            total_spawned += spawned
+            total_skipped += no_zone + constraint
+            skip_info = []
+            if no_zone > 0:
+                skip_info.append(f"no-zone:{no_zone}")
+            if constraint > 0:
+                skip_info.append(f"constraint:{constraint}")
+            skip_str = f" (skipped: {', '.join(skip_info)})" if skip_info else ""
+            print(f"    {cat:12}: {spawned} spawned{skip_str}")
+        
+        print(f"  Total: {total_spawned} spawned, {total_skipped} skipped")
+        if self.collision_removed > 0:
+            print(f"  Collisions resolved: {self.collision_removed}")
+
+
+# =============================================================================
+# TEST CLEANUP
+# =============================================================================
 
 class TestCleanup:
     """
@@ -119,6 +209,135 @@ class TestCleanup:
         return (self.actors_restored, self.restore_failures)
 
 
+# =============================================================================
+# VEHICLE SPAWNING WITH ZONE CONSTRAINTS
+# =============================================================================
+
+def spawn_vehicles_with_constraints(
+    spawner: VehicleSpawnController,
+    seed: int,
+    vehicle_count: int,
+    parking_ratio: float,
+    stats: SpawnStats
+) -> List:
+    """
+    Spawn vehicles respecting zone constraints.
+    
+    Constraints:
+    - Bikes: Sidewalks only (skipped - not implemented yet)
+    - Motorcycles: Parking slots only
+    - Buses: Road lanes only (max 1 bus per lane)
+    - Cars: Parking slots OR road lanes
+    - Trucks: Parking slots OR road lanes
+    
+    Args:
+        spawner: Vehicle spawn controller
+        seed: Random seed
+        vehicle_count: Target number of vehicles
+        parking_ratio: Ratio of parking vs lane placements
+        stats: Statistics tracker
+    
+    Returns:
+        List of spawned vehicle instances
+    """
+    import random
+    random.seed(seed)
+    
+    all_spawned = []
+    
+    # Check which zones are available
+    parking_anchors = spawner._get_parking_anchors() if spawner.anchor_config else []
+    lane_defs = spawner._get_lane_definitions() if spawner.anchor_config else []
+    
+    has_parking = len(parking_anchors) > 0
+    has_lanes = len(lane_defs) > 0
+    has_sidewalk = False  # Sidewalk spawning not yet implemented
+    
+    # Determine vehicle types for parking vs lanes based on constraints
+    parking_vehicle_types = []
+    lane_vehicle_types = []
+    
+    for cat in ALL_VEHICLE_CATEGORIES:
+        allowed_zones = VEHICLE_ZONE_CONSTRAINTS.get(cat, [])
+        
+        if "sidewalk" in allowed_zones and not has_sidewalk:
+            # Sidewalk not available - skip this category
+            stats.log_skip_no_zone(cat)
+            continue
+        
+        if "parking" in allowed_zones and has_parking:
+            parking_vehicle_types.append(cat)
+        
+        if "lane" in allowed_zones and has_lanes:
+            lane_vehicle_types.append(cat)
+    
+    # Decide how many go to parking vs lanes
+    parking_count = sum(1 for _ in range(vehicle_count) if random.random() < parking_ratio)
+    lane_count = vehicle_count - parking_count
+    
+    # Spawn parking vehicles (motorcycles, cars, trucks)
+    if parking_count > 0 and parking_vehicle_types:
+        stats.log_attempt("parking", f"{parking_count} vehicles")
+        parking_result = spawner.spawn_parking(
+            seed=seed,
+            count=parking_count,
+            vehicle_types=parking_vehicle_types
+        )
+        for v in parking_result.spawned_vehicles:
+            stats.log_success(v.category, v.name, v.anchor_name)
+            all_spawned.append(v)
+    elif parking_count > 0:
+        print(f"    [SKIP] No valid vehicle types for parking")
+    
+    # Spawn lane vehicles (buses, cars, trucks)
+    # CONSTRAINT: Max 1 bus per lane
+    if lane_count > 0 and lane_vehicle_types:
+        stats.log_attempt("lane", f"{lane_count} vehicles")
+        
+        # If buses are allowed, limit to max 1 per lane
+        if "bus" in lane_vehicle_types:
+            max_buses = len(lane_defs)  # One bus per lane maximum
+            
+            # Spawn buses first (limited to number of lanes)
+            bus_count = min(
+                sum(1 for _ in range(lane_count) if random.random() < 0.3),  # 30% chance for bus
+                max_buses  # But never more than number of lanes
+            )
+            
+            if bus_count > 0:
+                bus_result = spawner.spawn_lane(
+                    seed=seed + 1000,
+                    count=bus_count,
+                    vehicle_types=["bus"]
+                )
+                for v in bus_result.spawned_vehicles:
+                    stats.log_success(v.category, v.name, v.anchor_name)
+                    all_spawned.append(v)
+                
+                # Reduce lane_count for remaining vehicles
+                lane_count -= bus_count
+            
+            # Remove bus from available types for remaining vehicles
+            lane_vehicle_types_remaining = [t for t in lane_vehicle_types if t != "bus"]
+        else:
+            lane_vehicle_types_remaining = lane_vehicle_types
+        
+        # Spawn remaining lane vehicles (cars, trucks)
+        if lane_count > 0 and lane_vehicle_types_remaining:
+            other_result = spawner.spawn_lane(
+                seed=seed + 2000,
+                count=lane_count,
+                vehicle_types=lane_vehicle_types_remaining
+            )
+            for v in other_result.spawned_vehicles:
+                stats.log_success(v.category, v.name, v.anchor_name)
+                all_spawned.append(v)
+    elif lane_count > 0:
+        print(f"    [SKIP] No valid vehicle types for lanes")
+    
+    return all_spawned
+
+
 def main():
     print("\n" + "=" * 60)
     print("RANDOMIZATION TEST - 20 Captures")
@@ -184,6 +403,11 @@ def main():
     print(f"  ExponentialHeightFog: {weather_controller.exponential_fog or 'NOT FOUND'}")
     print(f"  Rain System: {weather_controller.rain_system or 'NOT FOUND'}")
     print(f"  Available weather: {', '.join(weather_controller.get_available_states())}")
+    
+    # Print vehicle zone constraints
+    print(f"\nVehicle Zone Constraints:")
+    for cat, zones in VEHICLE_ZONE_CONSTRAINTS.items():
+        print(f"  {cat:12}: {', '.join(zones)}")
     print("=" * 60)
     
     # Initialize cleanup handler and save all transforms BEFORE any spawning
@@ -202,6 +426,9 @@ def main():
     
     success = 0
     failed = 0
+    
+    # Global spawn statistics
+    global_stats = SpawnStats()
     
     # Wrap entire test in try/finally for guaranteed cleanup
     try:
@@ -223,6 +450,9 @@ def main():
             
             print(f"\n[{i+1}/20] Seed={seed}, Vehicles={vehicle_count}, Parking={parking_ratio:.0%}")
             
+            # Per-iteration stats
+            iter_stats = SpawnStats()
+            
             try:
                 # Step 1: Time augmentation (before any spawning)
                 time_result = time_controller.randomize(seed=seed)
@@ -240,26 +470,37 @@ def main():
                     continue
                 print(f"  Weather: {weather_result.weather_state}")
                 
-                # Step 3: Reset and spawn vehicles
+                # Step 3: Hide all vehicles and spawn with zone constraints
                 spawner.hide_all_vehicles()
                 
-                spawn_result = spawner.spawn(
+                spawned_vehicles = spawn_vehicles_with_constraints(
+                    spawner=spawner,
                     seed=seed,
-                    count=vehicle_count,
+                    vehicle_count=vehicle_count,
                     parking_ratio=parking_ratio,
-                    vehicle_types=["car"]
+                    stats=iter_stats
                 )
                 
-                if not spawn_result.success:
-                    print(f"  ✗ Vehicle spawn failed")
+                # Merge iteration stats into global
+                for cat in ALL_VEHICLE_CATEGORIES:
+                    global_stats.attempts[cat] += iter_stats.attempts[cat]
+                    global_stats.successes[cat] += iter_stats.successes[cat]
+                    global_stats.skipped_no_zone[cat] += iter_stats.skipped_no_zone[cat]
+                    global_stats.skipped_constraint[cat] += iter_stats.skipped_constraint[cat]
+                global_stats.collision_removed += iter_stats.collision_removed
+                
+                print(f"  Vehicles spawned: {len(spawned_vehicles)}")
+                
+                if not spawned_vehicles:
+                    print(f"  ✗ No vehicles spawned")
                     failed += 1
                     continue
                 
-                # Spawn props with same seed
+                # Step 4: Spawn props with same seed
                 prop_result = prop_controller.spawn_all(seed=seed, spawn_chance=0.2)
                 print(f"  Props spawned: {len(prop_result.spawned_props)}")
                 
-                # Capture
+                # Step 5: Capture
                 result = capture_controller.capture(
                     output_path=str(output_path),
                     seed=seed,
@@ -293,6 +534,9 @@ def main():
         print(f"  Success: {success}/20")
         print(f"  Failed:  {failed}/20")
         print(f"  Output:  {output_dir}")
+        
+        # Print global spawn statistics
+        global_stats.print_summary()
     
     finally:
         # GUARANTEED CLEANUP: Restore all actors to original transforms
