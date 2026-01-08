@@ -98,7 +98,7 @@ DEFAULT_WEATHER_STATES = {
         description="Cloudy, diffuse lighting",
         sun_intensity=0.4,
         sun_color_temp=7000.0,
-        fog_density=0.002,
+        fog_density=0.015,
         fog_height_falloff=0.15,
         cloud_coverage=0.9,
         cloud_density=1.5,
@@ -112,7 +112,7 @@ DEFAULT_WEATHER_STATES = {
         description="Light morning fog",
         sun_intensity=0.6,
         sun_color_temp=6000.0,
-        fog_density=0.01,
+        fog_density=0.035,
         fog_height_falloff=0.1,
         cloud_coverage=0.6,
         cloud_density=1.0,
@@ -126,7 +126,7 @@ DEFAULT_WEATHER_STATES = {
         description="Heavy fog, low visibility",
         sun_intensity=0.3,
         sun_color_temp=5500.0,
-        fog_density=0.03,
+        fog_density=0.08,
         fog_height_falloff=0.05,
         cloud_coverage=0.8,
         cloud_density=1.2,
@@ -140,7 +140,7 @@ DEFAULT_WEATHER_STATES = {
         description="Light to moderate rain",
         sun_intensity=0.35,
         sun_color_temp=7500.0,
-        fog_density=0.005,
+        fog_density=0.02,
         fog_height_falloff=0.12,
         cloud_coverage=0.95,
         cloud_density=1.8,
@@ -154,7 +154,7 @@ DEFAULT_WEATHER_STATES = {
         description="Heavy rain, reduced visibility",
         sun_intensity=0.2,
         sun_color_temp=8000.0,
-        fog_density=0.015,
+        fog_density=0.06,
         fog_height_falloff=0.08,
         cloud_coverage=1.0,
         cloud_density=2.0,
@@ -273,7 +273,7 @@ class WeatherAugmentationController:
                 json={
                     "objectPath": object_path,
                     "propertyName": property_name,
-                    "propertyValue": value
+                    "propertyValue": {property_name: value}
                 },
                 timeout=5.0
             )
