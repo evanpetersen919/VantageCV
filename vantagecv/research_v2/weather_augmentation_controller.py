@@ -206,7 +206,8 @@ class WeatherAugmentationController:
         self.volumetric_cloud: Optional[str] = None
         self.sky_atmosphere: Optional[str] = None
         self.post_process_volume: Optional[str] = None
-        self.rain_system: Optional[str] = None
+        self.rain_system: Optional[str] = None  # Normal rain (intensity 0.5)
+        self.rain_system_heavy: Optional[str] = None  # Heavy rain (intensity 1.0)
         
         # Original settings for reset
         self.original_settings: Dict[str, Any] = {}
@@ -349,7 +350,7 @@ class WeatherAugmentationController:
         
         # Sky Atmosphere patterns
         sky_patterns = [
-            "SkyAtmosphere", "SkyAtmosphere_1", "Sky_Atmosphere", "Atmosphere"
+            "SkyAtmosphere", "SkyAtmosphere_1", "SkyAtmosphere_2", "Sky_Atmosphere", "Atmosphere"
         ]
         for pattern in sky_patterns:
             if self._actor_exists(pattern):
@@ -376,19 +377,32 @@ class WeatherAugmentationController:
         if not self.post_process_volume:
             logger.warning("  WARNING: No PostProcessVolume found - post-process control disabled")
         
-        # Rain Niagara System patterns
+        # Normal Rain Niagara System patterns (intensity 0.5)
         rain_patterns = [
             "NS_Rain", "RainParticles", "Rain", "NiagaraRain",
-            "BP_Rain", "RainSystem", "Niagara_Rain"
+            "BP_Rain", "RainSystem", "Niagara_Rain", 
+            "NiagaraActor_3", "NiagaraActor_2", "NiagaraActor_1", "NiagaraActor"
         ]
         for pattern in rain_patterns:
             if self._actor_exists(pattern):
                 self.rain_system = pattern
-                logger.info(f"  Found Rain System: {pattern}")
+                logger.info(f"  Found Rain System (normal): {pattern}")
                 found_count += 1
                 break
         
-        if not self.rain_system:
+        # Heavy Rain Niagara System patterns (intensity 1.0)
+        heavy_rain_patterns = [
+            "NiagaraActor_6", "NS_HeavyRain", "RainHeavy", "HeavyRain",
+            "BP_HeavyRain", "RainSystem_Heavy"
+        ]
+        for pattern in heavy_rain_patterns:
+            if self._actor_exists(pattern):
+                self.rain_system_heavy = pattern
+                logger.info(f"  Found Rain System (heavy): {pattern}")
+                found_count += 1
+                break
+        
+        if not self.rain_system and not self.rain_system_heavy:
             logger.info("  INFO: No rain particle system found - rain effects disabled")
         
         logger.info(f"  Total weather actors found: {found_count}")
@@ -408,7 +422,7 @@ class WeatherAugmentationController:
         # Save directional light intensity
         if self.directional_light:
             # Try different component paths for DirectionalLight
-            for component in ["DirectionalLightComponent", "LightComponent"]:
+            for component in ["LightComponent0", "DirectionalLightComponent", "LightComponent"]:
                 path = f"{self.level_path}:PersistentLevel.{self.directional_light}.{component}"
                 result = self._get_property(path, "Intensity")
                 if result:
@@ -419,7 +433,7 @@ class WeatherAugmentationController:
         
         # Save fog settings
         if self.exponential_fog:
-            path = f"{self.level_path}:PersistentLevel.{self.exponential_fog}.ExponentialHeightFogComponent"
+            path = f"{self.level_path}:PersistentLevel.{self.exponential_fog}.HeightFogComponent0"
             
             result = self._get_property(path, "FogDensity")
             if result:
@@ -431,12 +445,29 @@ class WeatherAugmentationController:
             
             logger.info(f"  Saved fog density: {self.original_settings.get('fog_density', 'N/A')}")
         
-        # Save rain visibility state
+        # Save cloud settings
+        if self.volumetric_cloud:
+            path = f"{self.level_path}:PersistentLevel.{self.volumetric_cloud}.VolumetricCloudComponent"
+            result = self._get_property(path, "LayerHeight")
+            if result:
+                self.original_settings["cloud_layer_height"] = result.get("LayerHeight", 10.0)
+                logger.info(f"  Saved cloud layer height: {self.original_settings['cloud_layer_height']}")
+        
+        # Save rain visibility states
         if self.rain_system:
             path = f"{self.level_path}:PersistentLevel.{self.rain_system}"
             result = self._call_remote(path, "IsHidden")
             if result:
                 self.original_settings["rain_hidden"] = result.get("ReturnValue", True)
+            logger.info(f"  Saved normal rain hidden state: {self.original_settings.get('rain_hidden', 'N/A')}")
+        
+        if self.rain_system_heavy:
+            path = f"{self.level_path}:PersistentLevel.{self.rain_system_heavy}"
+            result = self._call_remote(path, "IsHidden")
+            if result:
+                self.original_settings["rain_heavy_hidden"] = result.get("ReturnValue", True)
+            logger.info(f"  Saved heavy rain hidden state: {self.original_settings.get('rain_heavy_hidden', 'N/A')}")
+
         
         self.originals_saved = True
         logger.info("  Original weather settings saved")
@@ -447,27 +478,33 @@ class WeatherAugmentationController:
     # =========================================================================
     
     def _apply_directional_light(self, state: WeatherState, warnings: List[str]) -> Dict[str, Any]:
-        """Apply directional light settings"""
+        """Apply directional light settings using SetIntensity function"""
         applied = {}
         
         if not self.directional_light:
             return applied
         
-        # Use saved component path or try both
-        component = self.original_settings.get("sun_component", "DirectionalLightComponent")
+        # Use saved component path or default
+        component = self.original_settings.get("sun_component", "LightComponent0")
         path = f"{self.level_path}:PersistentLevel.{self.directional_light}.{component}"
         
-        # Set intensity
-        if self._set_property(path, "Intensity", state.sun_intensity):
+        # Use SetIntensity function (property setting doesn't work)
+        result = self._call_remote(path, "SetIntensity", {"NewIntensity": state.sun_intensity})
+        if result is not None:
             applied["sun_intensity"] = state.sun_intensity
             logger.info(f"    Sun intensity: {state.sun_intensity}")
         else:
-            # Try alternate component
-            alt_component = "LightComponent" if component == "DirectionalLightComponent" else "DirectionalLightComponent"
-            alt_path = f"{self.level_path}:PersistentLevel.{self.directional_light}.{alt_component}"
-            if self._set_property(alt_path, "Intensity", state.sun_intensity):
-                applied["sun_intensity"] = state.sun_intensity
-                logger.info(f"    Sun intensity: {state.sun_intensity}")
+            # Try alternate components
+            for alt_component in ["LightComponent0", "DirectionalLightComponent", "LightComponent"]:
+                if alt_component == component:
+                    continue
+                alt_path = f"{self.level_path}:PersistentLevel.{self.directional_light}.{alt_component}"
+                result = self._call_remote(alt_path, "SetIntensity", {"NewIntensity": state.sun_intensity})
+                if result is not None:
+                    applied["sun_intensity"] = state.sun_intensity
+                    self.original_settings["sun_component"] = alt_component
+                    logger.info(f"    Sun intensity: {state.sun_intensity}")
+                    break
             else:
                 warnings.append("Failed to set sun intensity")
         
@@ -480,7 +517,7 @@ class WeatherAugmentationController:
         if not self.exponential_fog:
             return applied
         
-        path = f"{self.level_path}:PersistentLevel.{self.exponential_fog}.ExponentialHeightFogComponent"
+        path = f"{self.level_path}:PersistentLevel.{self.exponential_fog}.HeightFogComponent0"
         
         # Set fog density
         if self._set_property(path, "FogDensity", state.fog_density):
@@ -508,36 +545,63 @@ class WeatherAugmentationController:
         # Cloud settings are typically on the VolumetricCloudComponent
         path = f"{self.level_path}:PersistentLevel.{self.volumetric_cloud}.VolumetricCloudComponent"
         
-        # Try to set layer bottom altitude or coverage
-        # Note: Exact property names depend on UE5 version
-        logger.info(f"    Cloud coverage target: {state.cloud_coverage}")
-        applied["cloud_coverage"] = state.cloud_coverage
+        # Adjust layer height based on cloud coverage (more clouds = thicker layer)
+        # Coverage 0.0-1.0 maps to height 5-20km
+        layer_height = 5.0 + (state.cloud_coverage * 15.0)
+        
+        if self._set_property(path, "LayerHeight", layer_height):
+            applied["cloud_layer_height"] = layer_height
+            logger.info(f"    Cloud layer height: {layer_height:.1f}km")
+        else:
+            logger.warning("    Failed to set cloud layer height")
         
         return applied
     
     def _apply_rain(self, state: WeatherState, warnings: List[str]) -> Dict[str, Any]:
-        """Apply rain particle system settings"""
+        """
+        Apply rain particle system settings.
+        
+        Uses separate rain actors for different intensities:
+        - Normal rain (NiagaraActor_3): intensity <= 0.5
+        - Heavy rain (NiagaraActor_6): intensity > 0.5
+        Your Niagara settings for each are preserved.
+        
+        Uses SetIsTemporarilyHiddenInEditor (outliner eye icon) for visibility control.
+        """
         applied = {}
         
-        if not self.rain_system:
+        if not self.rain_system and not self.rain_system_heavy:
             if state.rain_enabled:
                 warnings.append("Rain enabled but no rain system found")
             return applied
         
-        path = f"{self.level_path}:PersistentLevel.{self.rain_system}"
+        # Determine which rain system to show based on intensity
+        use_heavy_rain = state.rain_enabled and state.rain_intensity > 0.5
         
-        # Show/hide rain system
-        hidden = not state.rain_enabled
-        result = self._call_remote(path, "SetActorHiddenInGame", {"bNewHidden": hidden})
+        # Hide/show normal rain (use editor visibility - outliner eye icon)
+        if self.rain_system:
+            path = f"{self.level_path}:PersistentLevel.{self.rain_system}"
+            show_normal = state.rain_enabled and not use_heavy_rain
+            # Use SetIsTemporarilyHiddenInEditor for editor viewport visibility
+            result = self._call_remote(path, "SetIsTemporarilyHiddenInEditor", {"bIsHidden": not show_normal})
+            if result is None:
+                warnings.append("Failed to toggle normal rain system")
         
-        if result is not None:
+        # Hide/show heavy rain (use editor visibility - outliner eye icon)
+        if self.rain_system_heavy:
+            path = f"{self.level_path}:PersistentLevel.{self.rain_system_heavy}"
+            result = self._call_remote(path, "SetIsTemporarilyHiddenInEditor", {"bIsHidden": not use_heavy_rain})
+            if result is None:
+                warnings.append("Failed to toggle heavy rain system")
+        
+        if state.rain_enabled:
             applied["rain_enabled"] = state.rain_enabled
             applied["rain_intensity"] = state.rain_intensity
-            logger.info(f"    Rain enabled: {state.rain_enabled}")
-            if state.rain_enabled:
-                logger.info(f"    Rain intensity: {state.rain_intensity}")
+            rain_type = "heavy" if use_heavy_rain else "normal"
+            logger.info(f"    Rain enabled: {rain_type} (intensity={state.rain_intensity})")
         else:
-            warnings.append("Failed to toggle rain system")
+            applied["rain_enabled"] = False
+            logger.info(f"    Rain enabled: False")
         
         return applied
     
@@ -663,11 +727,12 @@ class WeatherAugmentationController:
         logger.info("Resetting weather to original state...")
         success = True
         
-        # Restore sun intensity
+        # Restore sun intensity (using SetIntensity function - property setting doesn't work)
         if self.directional_light and "sun_intensity" in self.original_settings:
-            component = self.original_settings.get("sun_component", "DirectionalLightComponent")
+            component = self.original_settings.get("sun_component", "LightComponent0")
             path = f"{self.level_path}:PersistentLevel.{self.directional_light}.{component}"
-            if self._set_property(path, "Intensity", self.original_settings["sun_intensity"]):
+            result = self._call_remote(path, "SetIntensity", {"NewIntensity": self.original_settings["sun_intensity"]})
+            if result is not None:
                 logger.info(f"  Restored sun intensity: {self.original_settings['sun_intensity']}")
             else:
                 logger.warning("  Failed to restore sun intensity")
@@ -675,7 +740,7 @@ class WeatherAugmentationController:
         
         # Restore fog settings
         if self.exponential_fog:
-            path = f"{self.level_path}:PersistentLevel.{self.exponential_fog}.ExponentialHeightFogComponent"
+            path = f"{self.level_path}:PersistentLevel.{self.exponential_fog}.HeightFogComponent0"
             
             if "fog_density" in self.original_settings:
                 if self._set_property(path, "FogDensity", self.original_settings["fog_density"]):
@@ -689,13 +754,31 @@ class WeatherAugmentationController:
                 else:
                     success = False
         
-        # Restore rain hidden state
+        # Restore cloud settings
+        if self.volumetric_cloud and "cloud_layer_height" in self.original_settings:
+            path = f"{self.level_path}:PersistentLevel.{self.volumetric_cloud}.VolumetricCloudComponent"
+            if self._set_property(path, "LayerHeight", self.original_settings["cloud_layer_height"]):
+                logger.info(f"  Restored cloud layer height: {self.original_settings['cloud_layer_height']}")
+            else:
+                success = False
+        
+        # Restore normal rain hidden state (use editor visibility)
         if self.rain_system and "rain_hidden" in self.original_settings:
             path = f"{self.level_path}:PersistentLevel.{self.rain_system}"
-            result = self._call_remote(path, "SetActorHiddenInGame", 
-                                       {"bNewHidden": self.original_settings["rain_hidden"]})
+            result = self._call_remote(path, "SetIsTemporarilyHiddenInEditor", 
+                                       {"bIsHidden": self.original_settings["rain_hidden"]})
             if result is not None:
-                logger.info(f"  Restored rain hidden: {self.original_settings['rain_hidden']}")
+                logger.info(f"  Restored normal rain hidden: {self.original_settings['rain_hidden']}")
+            else:
+                success = False
+        
+        # Restore heavy rain hidden state (use editor visibility)
+        if self.rain_system_heavy and "rain_heavy_hidden" in self.original_settings:
+            path = f"{self.level_path}:PersistentLevel.{self.rain_system_heavy}"
+            result = self._call_remote(path, "SetIsTemporarilyHiddenInEditor", 
+                                       {"bIsHidden": self.original_settings["rain_heavy_hidden"]})
+            if result is not None:
+                logger.info(f"  Restored heavy rain hidden: {self.original_settings['rain_heavy_hidden']}")
             else:
                 success = False
         
