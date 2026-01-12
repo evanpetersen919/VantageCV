@@ -220,6 +220,26 @@ class VehicleSpawnController:
             return []
         return self.anchor_config.get("lanes", {}).get("definitions", [])
     
+    def _get_sidewalk_bounds(self) -> Optional[Tuple[Dict, Dict]]:
+        """Get sidewalk bounds from two corner anchors"""
+        if not self.anchor_config:
+            return None
+        
+        sidewalk = self.anchor_config.get("sidewalk", {})
+        anchor1 = sidewalk.get("anchor_1")
+        anchor2 = sidewalk.get("anchor_2")
+        
+        if not anchor1 or not anchor2:
+            return None
+        
+        t1 = self._get_anchor_transform(anchor1)
+        t2 = self._get_anchor_transform(anchor2)
+        
+        if not t1 or not t2:
+            return None
+        
+        return (t1, t2)
+    
     def _get_anchor_transform(self, anchor_name: str) -> Optional[Dict]:
         """Get anchor location and rotation"""
         path = f"{self.level_path}:PersistentLevel.{anchor_name}"
@@ -603,6 +623,129 @@ class VehicleSpawnController:
         return SpawnResult(
             success=len(all_spawned) > 0,
             spawned_vehicles=all_spawned
+        )
+    
+    def spawn_sidewalk(self, seed: int, count: int = 3,
+                      vehicle_types: List[str] = None) -> SpawnResult:
+        """
+        Spawn vehicles (bicycles) randomly within sidewalk bounds.
+        
+        Args:
+            seed: Random seed for deterministic spawning
+            count: Number of vehicles to spawn
+            vehicle_types: List of vehicle categories to spawn (default: ["bicycle"])
+        
+        Returns:
+            SpawnResult with spawned vehicles
+        """
+        random.seed(seed)
+        
+        if vehicle_types is None:
+            vehicle_types = ["bicycle"]
+        
+        # Get sidewalk bounds
+        bounds = self._get_sidewalk_bounds()
+        if not bounds:
+            logger.error("No sidewalk bounds configured")
+            return SpawnResult(
+                success=False,
+                spawned_vehicles=[],
+                failure_reason="No sidewalk bounds configured"
+            )
+        
+        anchor1_transform, anchor2_transform = bounds
+        loc1 = anchor1_transform["location"]
+        loc2 = anchor2_transform["location"]
+        
+        # Calculate bounding box
+        min_x = min(loc1["X"], loc2["X"])
+        max_x = max(loc1["X"], loc2["X"])
+        min_y = min(loc1["Y"], loc2["Y"])
+        max_y = max(loc1["Y"], loc2["Y"])
+        z = (loc1["Z"] + loc2["Z"]) / 2
+        
+        logger.info(f"Sidewalk bounds: X=[{min_x:.0f}, {max_x:.0f}] Y=[{min_y:.0f}, {max_y:.0f}]")
+        
+        # Get available vehicles
+        available = []
+        for vtype in vehicle_types:
+            available.extend(self._get_available_vehicles(vtype))
+        
+        if not available:
+            logger.warning(f"No available vehicles for types: {vehicle_types}")
+            return SpawnResult(
+                success=False,
+                spawned_vehicles=[],
+                failure_reason="No vehicles available in pool"
+            )
+        
+        random.shuffle(available)
+        
+        # Collision check: maintain minimum distance between spawns
+        MIN_SPACING = 100.0  # 100cm = 1m minimum distance
+        spawned_positions = []
+        spawned = []
+        
+        for i in range(min(count, len(available))):
+            vehicle = available[i]
+            vehicle_name = vehicle["name"]
+            category = vehicle["category"]
+            
+            # Try to find non-overlapping position
+            max_attempts = 20
+            for attempt in range(max_attempts):
+                # Random position within bounds
+                x = random.uniform(min_x, max_x)
+                y = random.uniform(min_y, max_y)
+                yaw = random.uniform(0, 360)
+                
+                # Check collision with existing spawns
+                collision = False
+                for prev_pos in spawned_positions:
+                    dx = x - prev_pos[0]
+                    dy = y - prev_pos[1]
+                    dist = math.sqrt(dx*dx + dy*dy)
+                    if dist < MIN_SPACING:
+                        collision = True
+                        break
+                
+                if not collision:
+                    # Valid position found
+                    spawned_positions.append((x, y))
+                    
+                    # Build location and rotation dicts
+                    location = {"X": x, "Y": y, "Z": z}
+                    rotation = {"Pitch": 0, "Yaw": yaw, "Roll": 0}
+                    
+                    # Teleport vehicle to position
+                    teleport_success = self._teleport_actor(vehicle_name, location, rotation)
+                    
+                    if teleport_success:
+                        # Unhide vehicle
+                        self._set_actor_hidden(vehicle_name, False)
+                        
+                        instance = VehicleInstance(
+                            name=vehicle_name,
+                            category=category,
+                            spawn_location=location,
+                            spawn_rotation=rotation,
+                            anchor_name=f"sidewalk_{i}"
+                        )
+                        
+                        self.spawned_vehicles.append(instance)
+                        spawned.append(instance)
+                        logger.info(f"  Spawned {vehicle_name} ({category}) at sidewalk ({x:.0f}, {y:.0f}, yaw={yaw:.0f}°)")
+                        break
+                    else:
+                        logger.error(f"Failed to teleport {vehicle_name}")
+            else:
+                logger.warning(f"Could not find non-colliding position for vehicle {i+1} after {max_attempts} attempts")
+        
+        logger.info(f"Spawned {len(spawned)}/{count} vehicles on sidewalk")
+        
+        return SpawnResult(
+            success=len(spawned) > 0,
+            spawned_vehicles=spawned
         )
     
     def reset_all(self) -> bool:

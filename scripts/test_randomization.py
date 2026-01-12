@@ -248,14 +248,16 @@ def spawn_vehicles_with_constraints(
     # Check which zones are available
     parking_anchors = spawner._get_parking_anchors() if spawner.anchor_config else []
     lane_defs = spawner._get_lane_definitions() if spawner.anchor_config else []
+    sidewalk_bounds = spawner._get_sidewalk_bounds() if spawner.anchor_config else None
     
     has_parking = len(parking_anchors) > 0
     has_lanes = len(lane_defs) > 0
-    has_sidewalk = False  # Sidewalk spawning not yet implemented
+    has_sidewalk = sidewalk_bounds is not None
     
-    # Determine vehicle types for parking vs lanes based on constraints
+    # Determine vehicle types for parking, lanes, and sidewalks based on constraints
     parking_vehicle_types = []
     lane_vehicle_types = []
+    sidewalk_vehicle_types = []
     
     for cat in ALL_VEHICLE_CATEGORIES:
         allowed_zones = VEHICLE_ZONE_CONSTRAINTS.get(cat, [])
@@ -278,6 +280,9 @@ def spawn_vehicles_with_constraints(
         
         if "lane" in allowed_zones and has_lanes:
             lane_vehicle_types.append(cat)
+        
+        if "sidewalk" in allowed_zones and has_sidewalk:
+            sidewalk_vehicle_types.append(cat)
     
     # Decide how many go to parking vs lanes
     parking_count = sum(1 for _ in range(vehicle_count) if random.random() < parking_ratio)
@@ -342,6 +347,23 @@ def spawn_vehicles_with_constraints(
                 all_spawned.append(v)
     elif lane_count > 0:
         print(f"    [SKIP] No valid vehicle types for lanes")
+    
+    # Spawn sidewalk vehicles (bicycles)
+    # Spawn a small number (1-2) of bicycles on sidewalks per iteration
+    if has_sidewalk and sidewalk_vehicle_types:
+        # 50% chance to spawn bicycles on sidewalk
+        if random.random() < 0.5:
+            sidewalk_count = random.randint(1, 2)  # 1-2 bicycles per sidewalk
+            stats.log_attempt("sidewalk", f"{sidewalk_count} vehicles")
+            
+            sidewalk_result = spawner.spawn_sidewalk(
+                seed=seed + 3000,  # Separate seed for sidewalk
+                count=sidewalk_count,
+                vehicle_types=sidewalk_vehicle_types
+            )
+            for v in sidewalk_result.spawned_vehicles:
+                stats.log_success(v.category, v.name, v.anchor_name)
+                all_spawned.append(v)
     
     return all_spawned
 
@@ -525,7 +547,9 @@ def main():
                     failed += 1
             
             except Exception as e:
+                import traceback
                 print(f"  [ERROR] {e}")
+                traceback.print_exc()
                 failed += 1
             
             finally:
