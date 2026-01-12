@@ -7,7 +7,7 @@ After every test run, the level is restored to its exact pre-test state.
 All actor transforms are captured before spawning and restored in finally block.
 
 VEHICLE CATEGORY CONSTRAINTS:
-- Bikes: Sidewalks only
+- Bikes: Parking slots OR sidewalks
 - Motorcycles: Parking slots only
 - Buses: Road lanes only
 - Cars: Parking slots OR road lanes
@@ -34,11 +34,11 @@ from vantagecv.research_v2.weather_augmentation_controller import WeatherAugment
 
 # Define which zone types are allowed for each vehicle category
 VEHICLE_ZONE_CONSTRAINTS = {
-    "bicycle": ["sidewalk"],       # Bikes: sidewalk only
-    "motorcycle": ["parking"],     # Motorcycles: parking only
-    "bus": ["lane"],               # Buses: lanes only
-    "car": ["parking", "lane"],    # Cars: parking or lanes
-    "truck": ["parking", "lane"],  # Trucks: parking or lanes
+    "bicycle": ["parking", "sidewalk"],  # Bikes: parking or sidewalk
+    "motorcycle": ["parking"],           # Motorcycles: parking only
+    "bus": ["lane"],                     # Buses: lanes only
+    "car": ["parking", "lane"],          # Cars: parking or lanes
+    "truck": ["parking", "lane"],        # Trucks: parking or lanes
 }
 
 # All vehicle categories to spawn
@@ -224,7 +224,7 @@ def spawn_vehicles_with_constraints(
     Spawn vehicles respecting zone constraints.
     
     Constraints:
-    - Bikes: Sidewalks only (skipped - not implemented yet)
+    - Bikes: Parking slots OR sidewalks (sidewalks not implemented yet)
     - Motorcycles: Parking slots only
     - Buses: Road lanes only (max 1 bus per lane)
     - Cars: Parking slots OR road lanes
@@ -260,11 +260,19 @@ def spawn_vehicles_with_constraints(
     for cat in ALL_VEHICLE_CATEGORIES:
         allowed_zones = VEHICLE_ZONE_CONSTRAINTS.get(cat, [])
         
-        if "sidewalk" in allowed_zones and not has_sidewalk:
-            # Sidewalk not available - skip this category
+        # Check if ANY allowed zone is available
+        has_any_zone = (
+            ("parking" in allowed_zones and has_parking) or
+            ("lane" in allowed_zones and has_lanes) or
+            ("sidewalk" in allowed_zones and has_sidewalk)
+        )
+        
+        if not has_any_zone:
+            # No valid zones for this category - skip it
             stats.log_skip_no_zone(cat)
             continue
         
+        # Add to appropriate zone lists
         if "parking" in allowed_zones and has_parking:
             parking_vehicle_types.append(cat)
         
