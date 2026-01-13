@@ -629,8 +629,18 @@ class VehicleSpawnController:
                       vehicle_types: List[str] = None) -> SpawnResult:
         """
         Spawn vehicles (bicycles) randomly within sidewalk bounds.
+                ANCHOR USAGE:
+        - Uses 2 corner anchors to define rectangular sidewalk region
+        - Anchors retrieved from config: sidewalk.anchor_1 and sidewalk.anchor_2
+        - Bounding box computed from anchor transforms (min/max X/Y)
+        - Random placement within bounds with collision avoidance (100cm spacing)
+        - Z coordinate averaged from both anchors
         
-        Args:
+        CONSISTENCY NOTE:
+        Unlike parking (1 vehicle per anchor) and lanes (interpolated positions),
+        sidewalk spawning uses random positions within anchor-defined bounds.
+        This is intentional for pedestrian/bike realism (not fixed parking spots).
+                Args:
             seed: Random seed for deterministic spawning
             count: Number of vehicles to spawn
             vehicle_types: List of vehicle categories to spawn (default: ["bicycle"])

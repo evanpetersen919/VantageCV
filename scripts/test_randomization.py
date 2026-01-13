@@ -128,6 +128,43 @@ class TestCleanup:
         self.actors_saved = 0
         self.actors_restored = 0
         self.restore_failures = 0
+        self.baseline_set = False
+    
+    def reset_to_baseline(self) -> bool:
+        """
+        Set environment to deterministic baseline state BEFORE testing.
+        Baseline: Noon lighting, clear weather, no fog, no rain.
+        Called once at test start for clean initial conditions.
+        
+        Returns:
+            True if baseline set successfully
+        """
+        if self.baseline_set:
+            return True  # Already set, don't repeat
+        
+        print("\n[TestCleanup] Setting baseline environment (noon, clear)...")
+        success = True
+        
+        # Set time to noon
+        if self.time_controller:
+            result = self.time_controller.set_time(time_state="noon")
+            if result.success:
+                print("  [OK] Time: noon")
+            else:
+                print(f"  [FAIL] Time: {result.failure_reason}")
+                success = False
+        
+        # Set weather to clear
+        if self.weather_controller:
+            result = self.weather_controller.set_weather(weather_state="clear")
+            if result.success:
+                print("  [OK] Weather: clear (no fog, no rain)")
+            else:
+                print(f"  [FAIL] Weather: {result.failure_reason}")
+                success = False
+        
+        self.baseline_set = success
+        return success
     
     def save_all_transforms(self) -> int:
         """
@@ -349,7 +386,8 @@ def spawn_vehicles_with_constraints(
         print(f"    [SKIP] No valid vehicle types for lanes")
     
     # Spawn sidewalk vehicles (bicycles)
-    # Spawn a small number (1-2) of bicycles on sidewalks per iteration
+    # Uses anchor-based bounds (2 corner anchors define sidewalk region)
+    # Bicycles spawn at random positions within anchor-defined bounds with collision avoidance
     if has_sidewalk and sidewalk_vehicle_types:
         # 50% chance to spawn bicycles on sidewalk
         if random.random() < 0.5:
@@ -443,6 +481,10 @@ def main():
     # Initialize cleanup handler and save all transforms BEFORE any spawning
     cleanup = TestCleanup(spawner, prop_controller, time_controller, weather_controller)
     cleanup.save_all_transforms()
+    
+    # Set baseline environment (noon, clear weather) for deterministic testing
+    if not cleanup.reset_to_baseline():
+        print("\nWARNING: Failed to set baseline environment - test may have inconsistent results")
     
     capture_controller = SmartCameraCaptureController(
         host="127.0.0.1",
@@ -578,9 +620,9 @@ def main():
         print("=" * 60)
         restored, failures = cleanup.restore_all_transforms()
         if failures > 0:
-            print(f"\n⚠ WARNING: {failures} actors failed to restore")
+            print(f"\n[WARNING] {failures} actors failed to restore")
         else:
-            print(f"\n✓ Level restored to pre-test state ({restored} actors)")
+            print(f"\n[OK] Level restored to pre-test state ({restored} actors)")
         print("=" * 60)
 
 if __name__ == "__main__":
