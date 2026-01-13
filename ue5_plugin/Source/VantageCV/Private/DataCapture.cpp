@@ -26,6 +26,10 @@
 #include "Json.h"
 #include "JsonUtilities.h"
 #include "RenderingThread.h"
+#include "Engine/DirectionalLight.h"
+#include "Components/DirectionalLightComponent.h"
+#include "Engine/SkyLight.h"
+#include "Components/SkyLightComponent.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDataCapture, Log, All);
 
@@ -49,13 +53,13 @@ ADataCapture::ADataCapture()
 		// MATCH VIEWPORT OUTPUT
 		//==========================================================================
 		
-		// Enable all rendering features
+		// Enable rendering features to match viewport
 		CaptureComponent->ShowFlags.SetPostProcessing(true);
 		CaptureComponent->ShowFlags.SetMotionBlur(false);
-		CaptureComponent->ShowFlags.SetBloom(true);
-		CaptureComponent->ShowFlags.SetTemporalAA(true);
+		CaptureComponent->ShowFlags.SetBloom(false);  // Disabled - use PPV setting
+		CaptureComponent->ShowFlags.SetTemporalAA(false);  // Disabled - no temporal artifacts
 		CaptureComponent->ShowFlags.SetAmbientOcclusion(true);
-		CaptureComponent->ShowFlags.SetEyeAdaptation(true);
+		CaptureComponent->ShowFlags.SetEyeAdaptation(false);  // CRITICAL: Disable auto-exposure here
 		CaptureComponent->ShowFlags.SetAtmosphere(true);
 		CaptureComponent->ShowFlags.SetSkyLighting(true);
 		CaptureComponent->ShowFlags.SetLighting(true);
@@ -63,39 +67,12 @@ ADataCapture::ADataCapture()
 		CaptureComponent->ShowFlags.SetTonemapper(true);
 		CaptureComponent->ShowFlags.SetColorGrading(true);
 		
-		// Use scene's post-process settings, not our overrides
+		// Use PostProcessVolume settings ONLY - no component overrides
 		CaptureComponent->PostProcessBlendWeight = 0.0f;
 		
-		// BLOOM - Subtle
-		CaptureComponent->PostProcessSettings.bOverride_BloomIntensity = true;
-		CaptureComponent->PostProcessSettings.BloomIntensity = 0.2f;
-		
-		// AMBIENT OCCLUSION - Softer shadows, reduce harsh contrast
-		CaptureComponent->PostProcessSettings.bOverride_AmbientOcclusionIntensity = true;
-		CaptureComponent->PostProcessSettings.AmbientOcclusionIntensity = 0.5f;  // Subtle AO
-		CaptureComponent->PostProcessSettings.bOverride_AmbientOcclusionRadius = true;
-		CaptureComponent->PostProcessSettings.AmbientOcclusionRadius = 100.0f;  // Larger radius
-		
-		// INDIRECT LIGHTING - Fill in dark shadow areas
-		CaptureComponent->PostProcessSettings.bOverride_IndirectLightingIntensity = true;
-		CaptureComponent->PostProcessSettings.IndirectLightingIntensity = 2.0f;  // Boost ambient
-		
-		// COLOR GRADING - Neutral, natural colors
-		CaptureComponent->PostProcessSettings.bOverride_ColorSaturation = true;
-		CaptureComponent->PostProcessSettings.ColorSaturation = FVector4(1.0f, 1.0f, 1.0f, 1.0f);
-		CaptureComponent->PostProcessSettings.bOverride_ColorContrast = true;
-		CaptureComponent->PostProcessSettings.ColorContrast = FVector4(0.95f, 0.95f, 0.95f, 1.0f);  // Slightly less contrast
-		CaptureComponent->PostProcessSettings.bOverride_ColorGamma = true;
-		CaptureComponent->PostProcessSettings.ColorGamma = FVector4(1.0f, 1.0f, 1.0f, 1.0f);
-		
-		// VIGNETTE - Disable for clean training images
-		CaptureComponent->PostProcessSettings.bOverride_VignetteIntensity = true;
-		CaptureComponent->PostProcessSettings.VignetteIntensity = 0.0f;
-		
-		// CHROMATIC ABERRATION - Disable for clean edges
-		CaptureComponent->PostProcessSettings.bOverride_SceneFringeIntensity = true;
-		CaptureComponent->PostProcessSettings.SceneFringeIntensity = 0.0f;
+		// NO OVERRIDES - PostProcessVolume_1 controls all settings
 	}
+
 	
 	// Initialize scene center to zero (will be set in BeginPlay)
 	SceneCenter = FVector::ZeroVector;
@@ -137,9 +114,9 @@ void ADataCapture::SetResolution(int32 Width, int32 Height)
 		return;
 	}
 
-	// Create RGB render target with sRGB format for proper gamma
+	// Create RGB render target - use linear format (SCS_FinalColorLDR is already gamma-corrected)
 	RenderTarget = NewObject<UTextureRenderTarget2D>(this);
-	RenderTarget->RenderTargetFormat = RTF_RGBA8_SRGB;  // Use sRGB format for correct brightness!
+	RenderTarget->RenderTargetFormat = RTF_RGBA8;  // Linear format for deterministic output
 	RenderTarget->ClearColor = FLinearColor::Black;
 	RenderTarget->bAutoGenerateMips = false;
 	RenderTarget->InitAutoFormat(Width, Height);
@@ -165,109 +142,122 @@ void ADataCapture::SetResolution(int32 Width, int32 Height)
 
 bool ADataCapture::CaptureFrame(const FString& OutputPath, int32 Width, int32 Height)
 {
-	UE_LOG(LogDataCapture, Log, TEXT("CaptureFrame called: %s (%dx%d)"), *OutputPath, Width, Height);
+	UE_LOG(LogDataCapture, Log, TEXT("=== CaptureFrame START ==="));
+	UE_LOG(LogDataCapture, Log, TEXT("Output: %s (%dx%d)"), *OutputPath, Width, Height);
 	
 	// Ensure CaptureComponent exists
 	if (!CaptureComponent)
 	{
-		UE_LOG(LogDataCapture, Warning, TEXT("CaptureComponent was null, creating new one"));
-		CaptureComponent = NewObject<USceneCaptureComponent2D>(this, TEXT("DataCaptureComponent"));
-		CaptureComponent->RegisterComponent();
-		CaptureComponent->AttachToComponent(GetRootComponent(), FAttachmentTransformRules::SnapToTargetIncludingScale);
+		UE_LOG(LogDataCapture, Error, TEXT("CaptureComponent is null - this should never happen!"));
+		return false;
 	}
 	
 	//==========================================================================
-	// CRITICAL FIX: SceneCaptureComponent2D doesn't share viewport exposure!
-	// Viewport adapts over time, but each capture starts fresh (dark)
-	// MUST force bright exposure with overrides
+	// VIEWPORT MATCH CONFIGURATION
+	// Goal: Capture exactly what the viewport shows
+	// Method: Use SCS_FinalColorLDR (viewport final output) with no overrides
 	//==========================================================================
+	
+	// Capture configuration
 	CaptureComponent->bCaptureEveryFrame = false;
 	CaptureComponent->bCaptureOnMovement = false;
-	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalToneCurveHDR;  // Use tonemapped HDR for brightness
+	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;  // CRITICAL: Match viewport output
 	
-	// Enable essential rendering features only
-	CaptureComponent->ShowFlags.SetPostProcessing(true);
-	CaptureComponent->ShowFlags.SetLighting(true);
-	CaptureComponent->ShowFlags.SetTonemapper(true);  // Keep tonemapper for proper range mapping
-	CaptureComponent->ShowFlags.SetEyeAdaptation(false);  // DISABLE - manual control
-	CaptureComponent->ShowFlags.SetColorGrading(false);  // DISABLE - can darken
-	CaptureComponent->ShowFlags.SetBloom(false);  // DISABLE - not needed
-	CaptureComponent->ShowFlags.SetAtmosphere(true);
-	CaptureComponent->ShowFlags.SetSkyLighting(true);
-	CaptureComponent->ShowFlags.SetAmbientOcclusion(false);  // DISABLE - darkens shadows
-	CaptureComponent->ShowFlags.SetMotionBlur(false);
-	CaptureComponent->ShowFlags.SetTemporalAA(false);
+	// ShowFlags: Enable features but let PostProcessVolume control intensity/settings
+	CaptureComponent->ShowFlags.SetPostProcessing(true);      // Required for PPV
+	CaptureComponent->ShowFlags.SetLighting(true);            // Required for scene
+	CaptureComponent->ShowFlags.SetTonemapper(true);          // Required for proper exposure
+	CaptureComponent->ShowFlags.SetEyeAdaptation(false);      // CRITICAL: Disable auto-exposure
+	CaptureComponent->ShowFlags.SetColorGrading(true);        // Let PPV control
+	CaptureComponent->ShowFlags.SetBloom(true);               // Let PPV control (likely disabled in PPV)
+	CaptureComponent->ShowFlags.SetAtmosphere(true);          // Atmosphere/fog
+	CaptureComponent->ShowFlags.SetSkyLighting(true);         // Sky contribution
+	CaptureComponent->ShowFlags.SetAmbientOcclusion(true);    // Let PPV control
+	CaptureComponent->ShowFlags.SetGlobalIllumination(true);  // GI/Lumen
+	CaptureComponent->ShowFlags.SetMotionBlur(false);         // Deterministic: no motion blur
+	CaptureComponent->ShowFlags.SetTemporalAA(false);         // Deterministic: no temporal effects
+	CaptureComponent->ShowFlags.SetGrain(false);              // Deterministic: no film grain
+	CaptureComponent->ShowFlags.SetVignette(false);           // Deterministic: no vignette
+	CaptureComponent->ShowFlags.SetScreenSpaceReflections(true);  // SSR for realism
 	
-	// CRITICAL: Force MAXIMUM brightness with manual exposure
+	//==========================================================================
+	// EXPOSURE CONTROL
+	// SceneCaptureComponent2D does NOT automatically use world PostProcessVolume
+	// BlendWeight=0 means "no post process" (causes bright/white output)
+	// BlendWeight=1 means "use component's PostProcessSettings"
+	// SOLUTION: Set explicit Manual Exposure on component with BlendWeight=1
+	//==========================================================================
+	CaptureComponent->PostProcessBlendWeight = 1.0f;
 	CaptureComponent->bOverride_CustomNearClippingPlane = false;
-	CaptureComponent->PostProcessBlendWeight = 1.0f;  // 100% our settings
 	
+	// Set MANUAL EXPOSURE to match what looks good in viewport
 	CaptureComponent->PostProcessSettings.bOverride_AutoExposureMethod = true;
-	CaptureComponent->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;  // MANUAL for full control
-	
+	CaptureComponent->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
 	CaptureComponent->PostProcessSettings.bOverride_AutoExposureBias = true;
-	CaptureComponent->PostProcessSettings.AutoExposureBias = 15.0f;  // EXTREME brightness (32x multiplier)
+	CaptureComponent->PostProcessSettings.AutoExposureBias = -15.0f;  // EXTREME negative bias - scene is very bright
 	
-	CaptureComponent->PostProcessSettings.bOverride_AutoExposureMinBrightness = true;
-	CaptureComponent->PostProcessSettings.AutoExposureMinBrightness = 10.0f;  // Force very bright minimum
+	// Disable bloom and vignette for clean synthetic data
+	CaptureComponent->PostProcessSettings.bOverride_BloomIntensity = true;
+	CaptureComponent->PostProcessSettings.BloomIntensity = 0.0f;
+	CaptureComponent->PostProcessSettings.bOverride_VignetteIntensity = true;
+	CaptureComponent->PostProcessSettings.VignetteIntensity = 0.0f;
+	CaptureComponent->PostProcessSettings.bOverride_SceneFringeIntensity = true;
+	CaptureComponent->PostProcessSettings.SceneFringeIntensity = 0.0f;
+	CaptureComponent->PostProcessSettings.bOverride_FilmGrainIntensity = true;
+	CaptureComponent->PostProcessSettings.FilmGrainIntensity = 0.0f;
+	CaptureComponent->PostProcessSettings.bOverride_MotionBlurAmount = true;
+	CaptureComponent->PostProcessSettings.MotionBlurAmount = 0.0f;
 	
-	CaptureComponent->PostProcessSettings.bOverride_AutoExposureMaxBrightness = true;
-	CaptureComponent->PostProcessSettings.AutoExposureMaxBrightness = 50.0f;  // Allow extreme brightness
+	UE_LOG(LogDataCapture, Log, TEXT("Capture Config: Source=SCS_FinalColorLDR, BlendWeight=%.1f, Manual Exposure, Bias=%.1f"),
+		CaptureComponent->PostProcessBlendWeight, CaptureComponent->PostProcessSettings.AutoExposureBias);
 
-	// Create render target (RGBA8 for standard 8-bit output)
+	// Create render target (RGBA8 linear for deterministic output)
 	if (!RenderTarget || RenderTarget->SizeX != Width || RenderTarget->SizeY != Height)
 	{
 		UE_LOG(LogDataCapture, Log, TEXT("Creating render target %dx%d"), Width, Height);
 		RenderTarget = NewObject<UTextureRenderTarget2D>(this);
-		RenderTarget->RenderTargetFormat = RTF_RGBA8;
+		RenderTarget->RenderTargetFormat = RTF_RGBA8;  // Linear format (SCS_FinalColorLDR has gamma baked in)
 		RenderTarget->ClearColor = FLinearColor::Black;
 		RenderTarget->bAutoGenerateMips = false;
 		RenderTarget->InitAutoFormat(Width, Height);
 		RenderTarget->UpdateResourceImmediate(true);
 	}
 	
-	// CRITICAL: Assign render target to capture component
+	// Assign render target to capture component
 	CaptureComponent->TextureTarget = RenderTarget;
-	UE_LOG(LogDataCapture, Log, TEXT("TextureTarget assigned, size: %dx%d"), RenderTarget->SizeX, RenderTarget->SizeY);
-
-	// Use DataCapture actor's own position and rotation for the capture
-	// This allows Python to control the camera position via Remote Control API
-	UWorld* World = GetWorld();
-	if (World)
-	{
-		FVector ActorLoc = GetActorLocation();
-		FRotator ActorRot = GetActorRotation();
-		
-		// Use actor's current FOV or default to 90
-		float FOV = CaptureComponent ? CaptureComponent->FOVAngle : 90.0f;
-		
-		UE_LOG(LogDataCapture, Log, TEXT("Using DataCapture actor transform - Loc=%s Rot=%s FOV=%.1f"), 
-			*ActorLoc.ToString(), *ActorRot.ToString(), FOV);
-	}
+	
+	// Log camera transform for debugging
+	FVector ActorLoc = GetActorLocation();
+	FRotator ActorRot = GetActorRotation();
+	float FOV = CaptureComponent->FOVAngle;
+	
+	UE_LOG(LogDataCapture, Log, TEXT("Camera: Loc=(%.1f, %.1f, %.1f) Rot=(P:%.1f Y:%.1f R:%.1f) FOV=%.1f"),
+		ActorLoc.X, ActorLoc.Y, ActorLoc.Z,
+		ActorRot.Pitch, ActorRot.Yaw, ActorRot.Roll,
+		FOV);
 
 	// Capture the scene
-	UE_LOG(LogDataCapture, Log, TEXT("Calling CaptureScene()..."));
+	UE_LOG(LogDataCapture, Log, TEXT("Executing CaptureScene()..."));
 	CaptureComponent->CaptureScene();
 	
-	// Wait for render to complete
+	// Wait for GPU to complete rendering (critical for deterministic output)
 	FlushRenderingCommands();
-	
 	FRenderCommandFence Fence;
 	Fence.BeginFence();
 	Fence.Wait();
 	
-	UE_LOG(LogDataCapture, Log, TEXT("Render commands flushed, saving to file..."));
+	UE_LOG(LogDataCapture, Log, TEXT("Render complete, writing to disk..."));
 
 	// Save to file
 	bool bSuccess = SaveRenderTargetToFile(RenderTarget, OutputPath);
 	
 	if (bSuccess)
 	{
-		UE_LOG(LogDataCapture, Log, TEXT("SUCCESS: Captured frame to: %s (%dx%d)"), *OutputPath, Width, Height);
+		UE_LOG(LogDataCapture, Log, TEXT("=== SUCCESS: %s (%dx%d) ==="), *OutputPath, Width, Height);
 	}
 	else
 	{
-		UE_LOG(LogDataCapture, Error, TEXT("FAILED to save frame to: %s"), *OutputPath);
+		UE_LOG(LogDataCapture, Error, TEXT("=== FAILED: %s ==="), *OutputPath);
 	}
 
 	return bSuccess;
