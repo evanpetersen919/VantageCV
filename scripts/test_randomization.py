@@ -154,8 +154,29 @@ class TestCleanup:
                 print(f"  [FAIL] Time: {result.failure_reason}")
                 success = False
         
-        # Set weather to clear
+        # Set weather to clear AND manually clear fog/rain
         if self.weather_controller:
+            # First, explicitly disable fog and rain
+            print("  Clearing fog and rain...")
+            
+            # Clear fog density
+            if self.weather_controller.exponential_fog:
+                fog_path = f"{self.weather_controller.level_path}:PersistentLevel.{self.weather_controller.exponential_fog}.HeightFogComponent0"
+                if self.weather_controller._set_property(fog_path, "FogDensity", 0.0):
+                    print("    [OK] Fog density: 0.0")
+                else:
+                    print("    [FAIL] Could not clear fog density")
+                    success = False
+            
+            # Disable rain
+            if self.weather_controller.rain_system:
+                rain_path = f"{self.weather_controller.level_path}:PersistentLevel.{self.weather_controller.rain_system}"
+                if self.weather_controller._call_remote(rain_path, "SetActorHiddenInGame", {"bNewHidden": True}):
+                    print("    [OK] Rain disabled")
+                else:
+                    print("    [FAIL] Could not disable rain")
+            
+            # Now set weather to clear (for other settings)
             result = self.weather_controller.set_weather(weather_state="clear")
             if result.success:
                 print("  [OK] Weather: clear (no fog, no rain)")
