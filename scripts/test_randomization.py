@@ -464,6 +464,10 @@ def main():
     prop_controller.detect_prop_pool()
     # Note: We use prop pool (existing actors), not asset discovery
     
+    # Detect vehicle pool once at startup
+    print("\nDetecting vehicle pool...")
+    spawner.detect_vehicle_pool()
+    
     # Detect lighting actors for time augmentation
     print("\nDetecting lighting actors...")
     if not time_controller.detect_lighting_actors():

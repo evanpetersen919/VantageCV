@@ -155,6 +155,118 @@ class VehicleSpawnController:
             return None
     
     # ========================================================================
+    # VEHICLE POOL DETECTION
+    # ========================================================================
+    
+    def detect_vehicle_pool(self) -> Dict[str, List[Dict]]:
+        """
+        Scan level for vehicle pool actors by detecting StaticMeshActors at specific X-coordinates.
+        
+        Classification rule (EXACT match):
+        X == 0    → Car
+        X == 1000 → Bus
+        X == 2000 → Motorcycle
+        X == 3000 → Bike
+        X == 4000 → Truck
+        
+        Returns:
+            Dict mapping vehicle category to list of vehicle dicts
+        """
+        print("=" * 60)
+        print("VEHICLE POOL DETECTION (BY X-COORDINATE)")
+        print("=" * 60)
+        
+        # Vehicle classification by X coordinate
+        VEHICLE_X_COORDINATES = {
+            0: "car",
+            1000: "bus",
+            2000: "motorcycle",
+            3000: "bicycle",
+            4000: "truck"
+        }
+        
+        # Initialize vehicle pool
+        detected_pool = {
+            "bicycle": [],
+            "bus": [],
+            "car": [],
+            "motorcycle": [],
+            "truck": []
+        }
+        
+        # Store original transforms for reset
+        self.vehicle_pool_original_transforms = {}
+        
+        # Scan StaticMeshActor_* naming pattern
+        for i in range(1, 500):
+            actor_name = f"StaticMeshActor_{i}"
+            transform = self._get_actor_transform(actor_name)
+            
+            if not transform:
+                continue
+            
+            x_coord = transform["location"].get("X", 0)
+            
+            # Check if X matches any vehicle pool classification (exact match)
+            for target_x, vehicle_category in VEHICLE_X_COORDINATES.items():
+                if abs(x_coord - target_x) < 1.0:  # Allow 1 unit tolerance for floating point
+                    vehicle_dict = {
+                        "name": actor_name,
+                        "category": vehicle_category,
+                        "default_transform": {
+                            "location": transform["location"].copy(),
+                            "rotation": transform["rotation"].copy(),
+                            "scale": transform["scale"].copy()
+                        }
+                    }
+                    
+                    detected_pool[vehicle_category].append(vehicle_dict)
+                    
+                    # Store original transform for reset
+                    self.vehicle_pool_original_transforms[actor_name] = {
+                        "location": transform["location"].copy(),
+                        "rotation": transform["rotation"].copy(),
+                        "scale": transform["scale"].copy()
+                    }
+                    
+                    print(f"  Detected {vehicle_category.upper()}: {actor_name}")
+                    print(f"      X-Coordinate: {x_coord:.1f} (target: {target_x})")
+                    break
+        
+        # Log summary
+        print("-" * 40)
+        print("VEHICLE POOL SUMMARY:")
+        total_vehicles = 0
+        for category, vehicles in detected_pool.items():
+            print(f"  {category.capitalize()}: {len(vehicles)} vehicles available")
+            total_vehicles += len(vehicles)
+        print(f"  TOTAL: {total_vehicles} vehicles in pool")
+        
+        # Update vehicle_config with detected pool
+        if not self.vehicle_config:
+            self.vehicle_config = {}
+        self.vehicle_config["vehicles"] = detected_pool
+        
+        return detected_pool
+    
+    def _get_actor_transform(self, actor_name: str) -> Optional[Dict]:
+        """Get actor transform (location, rotation, scale)"""
+        path = f"{self.level_path}:PersistentLevel.{actor_name}"
+        
+        loc = self._call_remote(path, "K2_GetActorLocation")
+        rot = self._call_remote(path, "K2_GetActorRotation")
+        scale_result = self._call_remote(path, "GetActorScale3D")
+        
+        if not loc or not rot:
+            return None
+        
+        return {
+            "location": loc.get("ReturnValue", {}),
+            "rotation": rot.get("ReturnValue", {}),
+            "scale": scale_result.get("ReturnValue", {"X": 1, "Y": 1, "Z": 1}) if scale_result else {"X": 1, "Y": 1, "Z": 1}
+        }
+    
+    # ========================================================================
     # VEHICLE POOL
     # ========================================================================
     
