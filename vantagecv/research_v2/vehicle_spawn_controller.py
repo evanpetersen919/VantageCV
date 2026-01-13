@@ -228,13 +228,9 @@ class VehicleSpawnController:
                         "rotation": transform["rotation"].copy(),
                         "scale": transform["scale"].copy()
                     }
-                    
-                    print(f"  Detected {vehicle_category.upper()}: {actor_name}")
-                    print(f"      X-Coordinate: {x_coord:.1f} (target: {target_x})")
                     break
         
         # Log summary
-        print("-" * 40)
         print("VEHICLE POOL SUMMARY:")
         total_vehicles = 0
         for category, vehicles in detected_pool.items():

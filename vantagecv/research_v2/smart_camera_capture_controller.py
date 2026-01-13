@@ -525,10 +525,15 @@ class SmartCameraCaptureController:
     
     def _capture_image(self, output_path: str, width: int = 1920, height: int = 1080) -> bool:
         """Capture image using DataCapture actor"""
+        from pathlib import Path
+        
+        # Convert to absolute path - UE5 needs full path for file operations
+        absolute_path = str(Path(output_path).resolve())
+        
         path = f"{self.level_path}:PersistentLevel.{self.data_capture_actor}"
         
         result = self._call_remote(path, "CaptureFrame", {
-            "OutputPath": output_path,
+            "OutputPath": absolute_path,
             "Width": width,
             "Height": height
         })
