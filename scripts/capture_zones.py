@@ -50,8 +50,33 @@ FORWARD_VECTOR_MIN_LENGTH = 0.9  # Safety check for valid forward vector
 
 # Distance constraints for pairing
 MIN_LANE_DISTANCE = 1500.0  # Lanes must be at least 15m apart
-MIN_SIDEWALK_DISTANCE = 1500.0  # Sidewalk corners must be at least 15m apart
+MIN_SIDEWALK_DISTANCE = 500.0  # Sidewalk corners must be at least 5m apart
 MAX_PARKING_ROW_DISTANCE = 800.0  # Parking slots in a row are within 8m of each other
+
+# ============================================================================
+# MULTI-LOCATION SUPPORT
+# ============================================================================
+
+# Global X bounds for zone detection
+X_MIN_GLOBAL = 5000.0
+X_MAX_GLOBAL = 30000.0
+
+# Y range configuration for locations
+Y_RANGE_SIZE = 20000.0 - 400.0  # 19600 units per location
+Y_START_BASE = 400.0
+
+# Number of locations to support
+NUM_LOCATIONS = 7
+
+# Generate location Y bounds dynamically
+LOCATION_Y_BOUNDS = [
+    (Y_START_BASE + i * Y_RANGE_SIZE, Y_START_BASE + (i + 1) * Y_RANGE_SIZE)
+    for i in range(NUM_LOCATIONS)
+]
+
+# Vehicle capacity calculation
+CAPACITY_UNITS_PER_500 = 1  # +1 vehicle per 500 units
+BUS_CAPACITY_COST = 2       # Bus consumes 2 capacity units
 
 
 class ZoneType(Enum):
@@ -89,6 +114,43 @@ class ClassifiedZone:
 # VECTOR MATH UTILITIES
 # ============================================================================
 
+def is_within_global_bounds(position: List[float]) -> bool:
+    """Check if position is within global X bounds"""
+    x = position[0]
+    return X_MIN_GLOBAL <= x <= X_MAX_GLOBAL
+
+
+def get_location_index(position: List[float]) -> Optional[int]:
+    """
+    Determine which location (1-7) a position belongs to based on Y coordinate.
+    Returns None if position is outside all location bounds or global X bounds.
+    """
+    if not is_within_global_bounds(position):
+        return None
+    
+    y = position[1]
+    for idx, (y_min, y_max) in enumerate(LOCATION_Y_BOUNDS):
+        if y_min <= y < y_max:
+            return idx + 1  # 1-indexed locations
+    
+    return None
+
+
+def calculate_lane_distance(pos1: List[float], pos2: List[float]) -> float:
+    """Calculate world-space distance between lane endpoints (2D horizontal distance)"""
+    dx = pos2[0] - pos1[0]
+    dy = pos2[1] - pos1[1]
+    return math.sqrt(dx * dx + dy * dy)
+
+
+def calculate_vehicle_capacity(distance: float) -> int:
+    """
+    Calculate vehicle capacity based on distance.
+    Formula: +1 vehicle per 500 units of distance
+    """
+    return int(distance / 500.0)
+
+
 def yaw_to_forward_vector(yaw_degrees: float) -> List[float]:
     """
     Convert yaw rotation to unit forward vector.
@@ -119,20 +181,46 @@ def distance_3d(pos1: List[float], pos2: List[float]) -> float:
 def are_sidewalk_corners(pos1: List[float], pos2: List[float], fwd1: List[float], fwd2: List[float]) -> bool:
     """
     Check if two anchors define sidewalk corners (opposite directions, aligned perpendicularly).
-    Sidewalk corners should be VERY close in one axis (defining a line) and facing each other.
+    Sidewalk corners should be aligned along one axis (defining a boundary).
+    CRITICAL: Arrows must point TOWARD each other, not just have opposite directions.
     """
     # Check if forward vectors are opposite
     dp = dot_product(fwd1, fwd2)
     if dp > -0.9:  # Not opposite enough
         return False
     
-    # Check position relationship - should be aligned VERY closely in one axis
-    delta_x = abs(pos2[0] - pos1[0])
-    delta_y = abs(pos2[1] - pos1[1])
+    # CRITICAL CHECK: Verify arrows point TOWARD each other's positions
+    # Direction from pos1 to pos2
+    dx = pos2[0] - pos1[0]
+    dy = pos2[1] - pos1[1]
+    dist = (dx**2 + dy**2)**0.5
+    if dist < MIN_SIDEWALK_DISTANCE:
+        return False
     
-    # Sidewalk corners: VERY close in one axis (<100cm), far in other (>3000)
-    # This defines a narrow strip/boundary
-    if (delta_x < 100 and delta_y > 3000) or (delta_y < 100 and delta_x > 3000):
+    # Normalize direction vector
+    dir_to_2 = [dx / dist, dy / dist, 0.0]
+    dir_to_1 = [-dx / dist, -dy / dist, 0.0]
+    
+    # Check if fwd1 points toward pos2 and fwd2 points toward pos1
+    # Both dot products should be positive (pointing toward each other)
+    dot_fwd1_to2 = dot_product(fwd1, dir_to_2)
+    dot_fwd2_to1 = dot_product(fwd2, dir_to_1)
+    
+    if dot_fwd1_to2 < 0.7 or dot_fwd2_to1 < 0.7:
+        # Arrows don't point toward each other - just parking spots with opposite yaw
+        return False
+    
+    # Check position relationship - should be aligned along one axis
+    delta_x = abs(dx)
+    delta_y = abs(dy)
+    
+    # Sidewalk corners: aligned primarily along one axis
+    # Either delta_x is much larger than delta_y, or vice versa
+    max_delta = max(delta_x, delta_y)
+    min_delta = min(delta_x, delta_y)
+    
+    # If max delta is at least 3x the min delta, they're aligned along an axis
+    if min_delta < 300 or max_delta > 3 * min_delta:
         return True
     
     return False
@@ -202,10 +290,74 @@ def classify_anchors(anchors: List[AnchorActor]) -> Tuple[List[ClassifiedZone], 
     print(f"Eligible anchors: {n}")
     
     # ========================================================================
-    # STEP 1: Find SIDEWALK pairs (arrows pointing TOWARD each other, dot ≈ -1.0)
+    # STEP 1: Find ROAD/LANE pairs (arrows pointing SAME direction, dot ≈ +1.0)
+    # Must be far apart to define a lane segment (> MIN_LANE_DISTANCE)
+    # ========================================================================
+    print(f"\n--- Pass 1: Finding ROAD pairs (dot ~= +1.0, dist > {MIN_LANE_DISTANCE:.0f}) ---")
+    
+    for i in range(n):
+        if i in used_indices:
+            continue
+        
+        anchor_a = anchors[i]
+        fwd_a = anchor_a.transform.forward_vector
+        
+        if not is_valid_forward_vector(fwd_a):
+            continue
+        
+        best_match = None
+        best_dot = None
+        best_distance = None
+        
+        for j in range(i + 1, n):
+            if j in used_indices:
+                continue
+            
+            anchor_b = anchors[j]
+            fwd_b = anchor_b.transform.forward_vector
+            
+            if not is_valid_forward_vector(fwd_b):
+                continue
+            
+            dp = dot_product(fwd_a, fwd_b)
+            dist = distance_3d(anchor_a.transform.position, anchor_b.transform.position)
+            
+            # ROAD: arrows point SAME direction (dot ≈ +1.0) AND far apart AND aligned along direction
+            if dp > (1.0 - DOT_PRODUCT_TOLERANCE) and dist >= MIN_LANE_DISTANCE:
+                # Check if the two anchors are aligned along the forward direction
+                if are_aligned_along_direction(anchor_a.transform.position, anchor_b.transform.position, fwd_a):
+                    if best_match is None or dp > best_dot:
+                        best_match = j
+                        best_dot = dp
+                        best_distance = dist
+        
+        if best_match is not None:
+            anchor_b = anchors[best_match]
+            
+            # Mark both as used
+            used_indices.add(i)
+            used_indices.add(best_match)
+            
+            # Classify as ROAD
+            anchor_a.zone_type = ZoneType.ROAD
+            anchor_a.paired_with = anchor_b.name
+            anchor_b.zone_type = ZoneType.ROAD
+            anchor_b.paired_with = anchor_a.name
+            
+            zone = ClassifiedZone(
+                zone_type=ZoneType.ROAD,
+                anchors=[anchor_a, anchor_b],
+                dot_product=best_dot
+            )
+            zones.append(zone)
+            
+            print(f"  [ROAD] {anchor_a.name} -> {anchor_b.name} (dot={best_dot:.4f}, dist={best_distance:.1f})")
+    
+    # ========================================================================
+    # STEP 2: Find SIDEWALK pairs (arrows pointing TOWARD each other, dot ≈ -1.0)
     # Must be far apart to define a region (> MIN_SIDEWALK_DISTANCE)
     # ========================================================================
-    print(f"\n--- Pass 1: Finding SIDEWALK pairs (dot ≈ -1.0, dist > {MIN_SIDEWALK_DISTANCE:.0f}) ---")
+    print(f"\n--- Pass 2: Finding SIDEWALK pairs (dot ~= -1.0, dist > {MIN_SIDEWALK_DISTANCE:.0f}) ---")
     
     for i in range(n):
         if i in used_indices:
@@ -264,74 +416,11 @@ def classify_anchors(anchors: List[AnchorActor]) -> Tuple[List[ClassifiedZone], 
             )
             zones.append(zone)
             
-            print(f"  ✓ SIDEWALK: {anchor_a.name} <-> {anchor_b.name} (dot={best_dot:.4f}, dist={best_distance:.1f})")
-    
-    # ========================================================================
-    # STEP 2: Find ROAD/LANE pairs (arrows pointing SAME direction, dot ≈ +1.0)
-    # Must be far apart to define a lane segment (> MIN_LANE_DISTANCE)
-    # ========================================================================
-    print(f"\n--- Pass 2: Finding ROAD pairs (dot ≈ +1.0, dist > {MIN_LANE_DISTANCE:.0f}) ---")
-    
-    for i in range(n):
-        if i in used_indices:
-            continue
-        
-        anchor_a = anchors[i]
-        fwd_a = anchor_a.transform.forward_vector
-        
-        if not is_valid_forward_vector(fwd_a):
-            continue
-        
-        best_match = None
-        best_dot = None
-        best_distance = None
-        
-        for j in range(i + 1, n):
-            if j in used_indices:
-                continue
-            
-            anchor_b = anchors[j]
-            fwd_b = anchor_b.transform.forward_vector
-            
-            if not is_valid_forward_vector(fwd_b):
-                continue
-            
-            dp = dot_product(fwd_a, fwd_b)
-            dist = distance_3d(anchor_a.transform.position, anchor_b.transform.position)
-            
-            # ROAD: arrows point SAME direction (dot ≈ +1.0) AND far apart AND aligned along direction
-            if dp > (1.0 - DOT_PRODUCT_TOLERANCE) and dist >= MIN_LANE_DISTANCE:
-                # Check if the two anchors are aligned along the forward direction
-                if are_aligned_along_direction(anchor_a.transform.position, anchor_b.transform.position, fwd_a):
-                    if best_match is None or dp > best_dot:
-                        best_match = j
-                        best_dot = dp
-                        best_distance = dist
-        
-        if best_match is not None:
-            anchor_b = anchors[best_match]
-            
-            # Mark both as used
-            used_indices.add(i)
-            used_indices.add(best_match)
-            
-            # Classify as ROAD
-            anchor_a.zone_type = ZoneType.ROAD
-            anchor_a.paired_with = anchor_b.name
-            anchor_b.zone_type = ZoneType.ROAD
-            anchor_b.paired_with = anchor_a.name
-            
-            zone = ClassifiedZone(
-                zone_type=ZoneType.ROAD,
-                anchors=[anchor_a, anchor_b],
-                dot_product=best_dot
-            )
-            zones.append(zone)
-            
-            print(f"  ✓ ROAD: {anchor_a.name} -> {anchor_b.name} (dot={best_dot:.4f}, dist={best_distance:.1f})")
+            print(f"  [SIDEWALK] {anchor_a.name} <-> {anchor_b.name} (dot={best_dot:.4f}, dist={best_distance:.1f})")
     
     # ========================================================================
     # STEP 3: Remaining anchors are PARKING slots
+    # CRITICAL: Parking spots must have arrows pointing to EMPTY SPACE, not toward other anchors
     # ========================================================================
     print(f"\n--- Pass 3: Remaining anchors -> PARKING ---")
     
@@ -341,16 +430,52 @@ def classify_anchors(anchors: List[AnchorActor]) -> Tuple[List[ClassifiedZone], 
             continue
         
         anchor = anchors[i]
-        anchor.zone_type = ZoneType.PARKING
         
-        zone = ClassifiedZone(
-            zone_type=ZoneType.PARKING,
-            anchors=[anchor],
-            dot_product=None
-        )
-        parking_zones.append(zone)
+        # VALIDATION: Check if this anchor's arrow points toward any other anchor
+        # If it does, it's likely a lane/sidewalk start that couldn't pair, not true parking
+        pos_a = anchor.transform.position
+        fwd_a = anchor.transform.forward_vector
+        points_to_anchor = False
         
-        print(f"  ✓ PARKING: {anchor.name}")
+        for j in range(n):
+            if i == j:
+                continue
+            
+            pos_b = anchors[j].transform.position
+            
+            # Calculate direction from anchor to other anchor
+            dx = pos_b[0] - pos_a[0]
+            dy = pos_b[1] - pos_a[1]
+            dist = (dx**2 + dy**2)**0.5
+            
+            if dist < 100:  # Too close, skip
+                continue
+            
+            # Normalize direction
+            dir_to_b = [dx / dist, dy / dist, 0.0]
+            
+            # Check if arrow points toward this other anchor
+            dot_to_b = dot_product(fwd_a, dir_to_b)
+            
+            # If arrow points strongly toward another anchor (within reasonable distance)
+            if dot_to_b > 0.85 and dist < 5000:
+                points_to_anchor = True
+                break
+        
+        # Only classify as parking if arrow points to empty space
+        if not points_to_anchor:
+            anchor.zone_type = ZoneType.PARKING
+            
+            zone = ClassifiedZone(
+                zone_type=ZoneType.PARKING,
+                anchors=[anchor],
+                dot_product=None
+            )
+            parking_zones.append(zone)
+            
+            print(f"  [PARKING] {anchor.name}")
+        else:
+            print(f"  [SKIP] {anchor.name} (arrow points toward another anchor)")
     
     zones.extend(parking_zones)
     
@@ -465,15 +590,15 @@ class ZoneCaptureClient:
                 forward_vector=forward
             )
         except Exception as e:
-            print(f"  ✗ Failed to get transform: {e}")
+            print(f"  [ERROR] Failed to get transform: {e}")
             return None
     
     def discover_eligible_anchors(self) -> Tuple[List[AnchorActor], List[Tuple[str, List[float]]]]:
         """
-        Discover all StaticMeshActors and filter by scale.
+        Discover all StaticMeshActors and filter by scale and location bounds.
         
         Returns:
-            - List of eligible AnchorActor objects
+            - List of eligible AnchorActor objects (within bounds)
             - List of ignored actors (name, scale) for logging
         """
         print(f"\n{'='*60}")
@@ -481,6 +606,10 @@ class ZoneCaptureClient:
         print(f"{'='*60}")
         print(f"Required scale: {REQUIRED_SCALE}")
         print(f"Scale tolerance: {SCALE_TOLERANCE}")
+        print(f"Global X bounds: [{X_MIN_GLOBAL:.0f}, {X_MAX_GLOBAL:.0f}]")
+        print(f"Locations: {NUM_LOCATIONS}")
+        for idx, (y_min, y_max) in enumerate(LOCATION_Y_BOUNDS):
+            print(f"  Location {idx + 1}: Y in [{y_min:.0f}, {y_max:.0f}]")
         
         all_actors = self.get_all_static_mesh_actors()
         print(f"\nTotal StaticMeshActors in level: {len(all_actors)}")
@@ -494,7 +623,13 @@ class ZoneCaptureClient:
             
             transform = self.get_actor_transform_full(actor_path)
             if transform is None:
-                print(f"  ✗ {name}: Failed to get transform")
+                print(f"  [ERROR] {name}: Failed to get transform")
+                continue
+            
+            # Check location bounds (X and Y)
+            location_idx = get_location_index(transform.position)
+            if location_idx is None:
+                # Outside all location bounds - ignore
                 continue
             
             # Check scale eligibility
@@ -505,11 +640,12 @@ class ZoneCaptureClient:
                 ignored.append((name, transform.scale))
         
         # Log eligible anchors
-        print(f"\n--- ELIGIBLE ANCHORS ({len(eligible)}) ---")
+        print(f"\n--- ELIGIBLE ANCHORS ({len(eligible)}) [within bounds] ---")
         for anchor in eligible:
             t = anchor.transform
             fwd = t.forward_vector
-            print(f"  ✓ {anchor.name:25}")
+            loc_idx = get_location_index(t.position)
+            print(f"  + {anchor.name:25} [Location {loc_idx}]")
             print(f"      Scale: ({t.scale[0]:.2f}, {t.scale[1]:.2f}, {t.scale[2]:.2f})")
             print(f"      Pos:   ({t.position[0]:8.1f}, {t.position[1]:8.1f}, {t.position[2]:8.1f})")
             print(f"      Yaw:   {t.rotation[1]:.1f}°")
@@ -517,9 +653,9 @@ class ZoneCaptureClient:
         
         # Log ignored anchors
         if ignored:
-            print(f"\n--- IGNORED ACTORS ({len(ignored)}) [wrong scale] ---")
+            print(f"\n--- IGNORED ACTORS ({len(ignored)}) [wrong scale or out of bounds] ---")
             for name, scale in ignored[:20]:  # Limit output
-                print(f"  ✗ {name:25} Scale: ({scale[0]:.2f}, {scale[1]:.2f}, {scale[2]:.2f})")
+                print(f"  - {name:25} Scale: ({scale[0]:.2f}, {scale[1]:.2f}, {scale[2]:.2f})")
             if len(ignored) > 20:
                 print(f"  ... and {len(ignored) - 20} more")
         
@@ -599,6 +735,118 @@ def generate_classified_manifest(
 
 
 # ============================================================================
+# VALIDATION SUMMARY
+# ============================================================================
+
+def print_validation_summary(zones: List[ClassifiedZone]):
+    """
+    Print comprehensive validation summary for all locations.
+    Includes counts per location and capacity calculations.
+    """
+    print(f"\n{'='*70}")
+    print("VALIDATION SUMMARY - MULTI-LOCATION ZONE ANALYSIS")
+    print(f"{'='*70}")
+    
+    # Initialize location tracking
+    location_data = {
+        i: {"parking": 0, "lanes": [], "sidewalks": []}
+        for i in range(1, NUM_LOCATIONS + 1)
+    }
+    
+    # Classify zones by location
+    for zone in zones:
+        if zone.zone_type == ZoneType.PARKING:
+            # Single anchor
+            pos = zone.anchors[0].transform.position
+            loc_idx = get_location_index(pos)
+            if loc_idx:
+                location_data[loc_idx]["parking"] += 1
+        
+        elif zone.zone_type == ZoneType.ROAD:
+            # Paired anchors (lane)
+            pos1 = zone.anchors[0].transform.position
+            pos2 = zone.anchors[1].transform.position
+            # Both anchors must be in the same location
+            loc_idx1 = get_location_index(pos1)
+            loc_idx2 = get_location_index(pos2)
+            
+            if loc_idx1 and loc_idx1 == loc_idx2:
+                # Only count if both anchors are in the same location
+                distance = calculate_lane_distance(pos1, pos2)
+                capacity = calculate_vehicle_capacity(distance)
+                location_data[loc_idx1]["lanes"].append({
+                    "name": f"{zone.anchors[0].name} -> {zone.anchors[1].name}",
+                    "distance": distance,
+                    "capacity": capacity
+                })
+        
+        elif zone.zone_type == ZoneType.SIDEWALK:
+            # Paired anchors (sidewalk)
+            pos1 = zone.anchors[0].transform.position
+            pos2 = zone.anchors[1].transform.position
+            # Both anchors must be in the same location
+            loc_idx1 = get_location_index(pos1)
+            loc_idx2 = get_location_index(pos2)
+            
+            if loc_idx1 and loc_idx1 == loc_idx2:
+                # Only count if both anchors are in the same location
+                distance = calculate_lane_distance(pos1, pos2)
+                capacity = int(distance / 500)
+                location_data[loc_idx1]["sidewalks"].append({
+                    "name": f"{zone.anchors[0].name} -> {zone.anchors[1].name}",
+                    "distance": distance,
+                    "capacity": capacity
+                })
+    
+    # Print summary for each location
+    for loc_idx in range(1, NUM_LOCATIONS + 1):
+        data = location_data[loc_idx]
+        y_min, y_max = LOCATION_Y_BOUNDS[loc_idx - 1]
+        
+        print(f"\nLOCATION {loc_idx} | Y ∈ [{y_min:.0f}, {y_max:.0f}]")
+        print(f"{'-'*70}")
+        
+        # Counts
+        print(f"  Parking Spots:  {data['parking']}")
+        print(f"  Lanes:          {len(data['lanes'])}")
+        print(f"  Sidewalks:      {len(data['sidewalks'])}")
+        
+        # Lane details
+        if data['lanes']:
+            print(f"\n  Lane Details:")
+            for lane in data['lanes']:
+                print(f"    • {lane['name']}")
+                print(f"      Distance: {lane['distance']:.1f} units")
+                print(f"      Capacity: {lane['capacity']} vehicles (+{lane['capacity']*2} if all buses)")
+        
+        # Sidewalk details
+        if data['sidewalks']:
+            print(f"\n  Sidewalk Details:")
+            for sidewalk in data['sidewalks']:
+                print(f"    • {sidewalk['name']}")
+                print(f"      Distance: {sidewalk['distance']:.1f} units")
+                print(f"      Capacity: {sidewalk['capacity']} vehicles")
+    
+    # Global summary
+    print(f"\n{'='*70}")
+    print("GLOBAL SUMMARY")
+    print(f"{'='*70}")
+    total_parking = sum(loc["parking"] for loc in location_data.values())
+    total_lanes = sum(len(loc["lanes"]) for loc in location_data.values())
+    total_sidewalks = sum(len(loc["sidewalks"]) for loc in location_data.values())
+    
+    print(f"  Total Parking Spots:  {total_parking}")
+    print(f"  Total Lanes:          {total_lanes}")
+    print(f"  Total Sidewalks:      {total_sidewalks}")
+    print(f"  Total Zones:          {len(zones)}")
+    
+    print(f"\nCapacity Calculation Formula:")
+    print(f"  • +{CAPACITY_UNITS_PER_500} vehicle per 500 units of distance")
+    print(f"  • Bus consumes {BUS_CAPACITY_COST} capacity units")
+    print(f"{'='*70}\n")
+
+
+# ============================================================================
 # MAIN ENTRY POINT
 # ============================================================================
 
@@ -656,11 +904,51 @@ Examples:
             print(f"   Place StaticMeshActors with scale (0.5, 0.5, 0.5) to use as anchors")
             return 1
         
-        # Step 2: Classify zones
-        zones, _ = classify_anchors(eligible)
+        # Step 2: Group anchors by location
+        print("\n" + "="*60)
+        print("LOCATION-BASED GROUPING")
+        print("="*60)
+        
+        location_anchors = {i: [] for i in range(1, NUM_LOCATIONS + 1)}
+        for anchor in eligible:
+            loc_idx = get_location_index(anchor.transform.position)
+            if loc_idx:
+                location_anchors[loc_idx].append(anchor)
+        
+        # Print grouping summary
+        for loc_idx in range(1, NUM_LOCATIONS + 1):
+            count = len(location_anchors[loc_idx])
+            print(f"  Location {loc_idx}: {count} anchors")
+        
+        # Step 3: Classify zones within each location independently
+        print("\n" + "="*60)
+        print("PER-LOCATION ZONE CLASSIFICATION")
+        print("="*60)
+        
+        all_zones = []
+        for loc_idx in range(1, NUM_LOCATIONS + 1):
+            anchors = location_anchors[loc_idx]
+            if not anchors:
+                continue
+            
+            print(f"\n--- Location {loc_idx} ---")
+            zones, _ = classify_anchors(anchors)
+            
+            # Count zone types
+            parking_count = sum(1 for z in zones if z.zone_type == ZoneType.PARKING)
+            lane_count = sum(1 for z in zones if z.zone_type == ZoneType.ROAD)
+            sidewalk_count = sum(1 for z in zones if z.zone_type == ZoneType.SIDEWALK)
+            
+            print(f"  Parking: {parking_count}, Lanes: {lane_count}, Sidewalks: {sidewalk_count}")
+            all_zones.extend(zones)
+        
+        zones = all_zones
+        
+        # Step 2.5: Print validation summary
+        print_validation_summary(zones)
         
         if args.list_only:
-            print(f"\n✓ Classification complete. Use --output to generate YAML.")
+            print(f"\n[DONE] Classification complete. Use --output to generate YAML.")
             return 0
         
         if not args.output:
