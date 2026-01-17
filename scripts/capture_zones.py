@@ -46,11 +46,12 @@ from enum import Enum
 REQUIRED_SCALE = (0.3, 0.3, 0.3)
 SCALE_TOLERANCE = 0.001
 DOT_PRODUCT_TOLERANCE = 0.1  # For pairing classification
+DOT_PRODUCT_LANE_THRESHOLD = 0.95  # Lanes require stricter alignment (dot >= 0.95)
 FORWARD_VECTOR_MIN_LENGTH = 0.9  # Safety check for valid forward vector
 
 # Distance constraints for pairing
 MIN_LANE_DISTANCE = 1500.0  # Lanes must be at least 15m apart
-MIN_SIDEWALK_DISTANCE = 500.0  # Sidewalk corners must be at least 5m apart
+MIN_SIDEWALK_DISTANCE = 450.0  # Sidewalk corners must be at least 4.5m apart
 MAX_PARKING_ROW_DISTANCE = 800.0  # Parking slots in a row are within 8m of each other
 
 # ============================================================================
@@ -322,8 +323,8 @@ def classify_anchors(anchors: List[AnchorActor]) -> Tuple[List[ClassifiedZone], 
             dp = dot_product(fwd_a, fwd_b)
             dist = distance_3d(anchor_a.transform.position, anchor_b.transform.position)
             
-            # ROAD: arrows point SAME direction (dot ≈ +1.0) AND far apart AND aligned along direction
-            if dp > (1.0 - DOT_PRODUCT_TOLERANCE) and dist >= MIN_LANE_DISTANCE:
+            # ROAD: arrows point SAME direction (dot >= 0.95 for strict alignment) AND far apart AND aligned along direction
+            if dp >= DOT_PRODUCT_LANE_THRESHOLD and dist >= MIN_LANE_DISTANCE:
                 # Check if the two anchors are aligned along the forward direction
                 if are_aligned_along_direction(anchor_a.transform.position, anchor_b.transform.position, fwd_a):
                     if best_match is None or dp > best_dot:
@@ -333,6 +334,43 @@ def classify_anchors(anchors: List[AnchorActor]) -> Tuple[List[ClassifiedZone], 
         
         if best_match is not None:
             anchor_b = anchors[best_match]
+            
+            # CRITICAL CHECK: Before pairing as lane, verify neither anchor has a closer opposite-facing neighbor
+            # that would make a better sidewalk. This prevents Actor 189 pairing with distant 167 when it should
+            # pair with nearby Actor 186 as a sidewalk.
+            should_pair_as_lane = True
+            
+            for check_idx in [i, best_match]:
+                check_anchor = anchors[check_idx]
+                check_fwd = check_anchor.transform.forward_vector
+                check_pos = check_anchor.transform.position
+                
+                # Look for closer opposite-facing anchors
+                for k in range(n):
+                    if k == check_idx or k in used_indices:
+                        continue
+                    
+                    other_anchor = anchors[k]
+                    other_fwd = other_anchor.transform.forward_vector
+                    other_pos = other_anchor.transform.position
+                    
+                    dp_opposite = dot_product(check_fwd, other_fwd)
+                    dist_to_other = distance_3d(check_pos, other_pos)
+                    
+                    # If there's an opposite-facing anchor that's MUCH closer and would make a valid sidewalk
+                    if (dp_opposite < -0.9 and 
+                        dist_to_other >= MIN_SIDEWALK_DISTANCE and 
+                        dist_to_other < best_distance * 0.5 and  # At least 2x closer than the lane partner
+                        are_sidewalk_corners(check_pos, other_pos, check_fwd, other_fwd)):
+                        should_pair_as_lane = False
+                        break
+                
+                if not should_pair_as_lane:
+                    break
+            
+            if not should_pair_as_lane:
+                # Skip this lane pairing, let sidewalk detection handle it
+                continue
             
             # Mark both as used
             used_indices.add(i)
@@ -431,19 +469,20 @@ def classify_anchors(anchors: List[AnchorActor]) -> Tuple[List[ClassifiedZone], 
         
         anchor = anchors[i]
         
-        # VALIDATION: Check if this anchor's arrow points toward any other anchor
-        # If it does, it's likely a lane/sidewalk start that couldn't pair, not true parking
+        # VALIDATION 1: Check if this anchor's arrow points toward any OTHER UNPAIRED anchor
+        # VALIDATION 2: Check if this anchor is aligned with any lane anchor (indicating failed lane pairing)
         pos_a = anchor.transform.position
         fwd_a = anchor.transform.forward_vector
-        points_to_anchor = False
+        should_skip = False
         
         for j in range(n):
             if i == j:
                 continue
             
             pos_b = anchors[j].transform.position
+            fwd_b = anchors[j].transform.forward_vector
             
-            # Calculate direction from anchor to other anchor
+            # Calculate direction and distance
             dx = pos_b[0] - pos_a[0]
             dy = pos_b[1] - pos_a[1]
             dist = (dx**2 + dy**2)**0.5
@@ -451,19 +490,34 @@ def classify_anchors(anchors: List[AnchorActor]) -> Tuple[List[ClassifiedZone], 
             if dist < 100:  # Too close, skip
                 continue
             
-            # Normalize direction
-            dir_to_b = [dx / dist, dy / dist, 0.0]
+            # Check 1: If unpaired, check if arrow points toward it
+            if j not in used_indices:
+                dir_to_b = [dx / dist, dy / dist, 0.0]
+                dot_to_b = dot_product(fwd_a, dir_to_b)
+                
+                # If arrow points strongly toward another unpaired anchor
+                if dot_to_b > 0.85 and dist < 5000:
+                    should_skip = True
+                    break
             
-            # Check if arrow points toward this other anchor
-            dot_to_b = dot_product(fwd_a, dir_to_b)
-            
-            # If arrow points strongly toward another anchor (within reasonable distance)
-            if dot_to_b > 0.85 and dist < 5000:
-                points_to_anchor = True
-                break
+            # Check 2: If j is paired in a LANE, check if this anchor is aligned with it
+            # (same direction + points toward it = failed lane partner)
+            if j in used_indices:
+                # Check if j is part of a lane (zone_type = ROAD)
+                if anchors[j].zone_type == ZoneType.ROAD:
+                    dp_direction = dot_product(fwd_a, fwd_b)
+                    
+                    # If same direction AND points toward the lane anchor
+                    if dp_direction >= DOT_PRODUCT_LANE_THRESHOLD:
+                        dir_to_b = [dx / dist, dy / dist, 0.0]
+                        dot_to_b = dot_product(fwd_a, dir_to_b)
+                        
+                        if dot_to_b > 0.85:
+                            should_skip = True
+                            break
         
-        # Only classify as parking if arrow points to empty space
-        if not points_to_anchor:
+        # Only classify as parking if validations pass
+        if not should_skip:
             anchor.zone_type = ZoneType.PARKING
             
             zone = ClassifiedZone(
