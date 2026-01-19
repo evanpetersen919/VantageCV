@@ -29,6 +29,22 @@ from vantagecv.research_v2.weather_augmentation_controller import WeatherAugment
 
 
 # =============================================================================
+# LOCATION BOUNDARIES
+# =============================================================================
+
+# Location boundaries (Y-coordinate ranges)
+LOCATION_BOUNDARIES = {
+    1: (400, 19600),
+    2: (19600, 39600),
+    3: (39600, 59600),
+    4: (59600, 79600),
+    5: (79600, 97600),
+    6: (97600, 117600),
+    7: (117600, 137600),
+}
+
+
+# =============================================================================
 # VEHICLE ZONE CONSTRAINTS
 # =============================================================================
 
@@ -268,6 +284,126 @@ class TestCleanup:
 
 
 # =============================================================================
+# LOCATION FILTERING HELPERS
+# =============================================================================
+
+def filter_anchor_config_by_location(spawner, location: int) -> Dict:
+    """Filter anchor config to only zones within a specific location's Y boundaries.
+    
+    This fetches actor positions from UE5 since the YAML only stores actor names.
+    """
+    if not spawner.anchor_config or location not in LOCATION_BOUNDARIES:
+        return spawner.anchor_config
+    
+    y_min, y_max = LOCATION_BOUNDARIES[location]
+    filtered_config = {}
+    
+    # Filter parking anchors (list of actor name strings)
+    if 'parking' in spawner.anchor_config:
+        parking_section = spawner.anchor_config['parking'].copy()
+        anchor_names = parking_section.get('anchors', [])
+        
+        filtered_parking_names = []
+        for anchor_name in anchor_names:
+            # Fetch transform from UE5
+            transform = spawner._get_anchor_transform(anchor_name)
+            if transform:
+                y_pos = transform['location'].get('Y', 0)
+                if y_min <= y_pos < y_max:
+                    filtered_parking_names.append(anchor_name)
+        
+        parking_section['anchors'] = filtered_parking_names
+        filtered_config['parking'] = parking_section
+    
+    # Filter lanes (list of dicts with start/end anchor names)
+    if 'lanes' in spawner.anchor_config:
+        lanes_section = spawner.anchor_config['lanes'].copy()
+        lane_defs = lanes_section.get('definitions', [])
+        
+        filtered_lanes = []
+        for lane in lane_defs:
+            # Check Start anchor position
+            start_name = lane.get('start')
+            if start_name:
+                transform = spawner._get_anchor_transform(start_name)
+                if transform:
+                    y_pos = transform['location'].get('Y', 0)
+                    if y_min <= y_pos < y_max:
+                        filtered_lanes.append(lane)
+        
+        lanes_section['definitions'] = filtered_lanes
+        filtered_config['lanes'] = lanes_section
+    
+    # Filter sidewalk bounds (anchor_1 and anchor_2 names)
+    if 'sidewalk' in spawner.anchor_config:
+        sidewalk_section = spawner.anchor_config['sidewalk']
+        anchor_1_name = sidewalk_section.get('anchor_1')
+        
+        if anchor_1_name:
+            transform = spawner._get_anchor_transform(anchor_1_name)
+            if transform:
+                y_pos = transform['location'].get('Y', 0)
+                if y_min <= y_pos < y_max:
+                    filtered_config['sidewalk'] = sidewalk_section
+    
+    return filtered_config
+
+
+def filter_zones_by_location(zones: Dict[str, List], location: int) -> Dict[str, List]:
+    """Filter zones to only those within a specific location's Y boundaries."""
+    if location not in LOCATION_BOUNDARIES:
+        print(f"WARNING: Invalid location {location}, using all zones")
+        return zones
+    
+    y_min, y_max = LOCATION_BOUNDARIES[location]
+    filtered = {}
+    
+    for zone_type, zone_list in zones.items():
+        filtered[zone_type] = []
+        for zone in zone_list:
+            # Extract Y position from zone
+            if hasattr(zone, 'position'):
+                y_pos = zone.position[1]
+            elif isinstance(zone, dict) and 'position' in zone:
+                y_pos = zone['position'][1]
+            else:
+                continue
+            
+            # Check if in location bounds
+            if y_min <= y_pos < y_max:
+                filtered[zone_type].append(zone)
+    
+    return filtered
+
+
+def filter_anchors_by_location(anchors: Dict[str, List], location: int) -> Dict[str, List]:
+    """Filter prop anchors to only those within a specific location's Y boundaries."""
+    if location not in LOCATION_BOUNDARIES:
+        print(f"WARNING: Invalid location {location}, using all anchors")
+        return anchors
+    
+    y_min, y_max = LOCATION_BOUNDARIES[location]
+    filtered = {}
+    
+    for anchor_type, anchor_list in anchors.items():
+        filtered[anchor_type] = []
+        for anchor in anchor_list:
+            # Extract Y position from anchor
+            if hasattr(anchor, 'position'):
+                y_pos = anchor.position[1]
+            elif isinstance(anchor, dict) and 'position' in anchor:
+                y_pos = anchor['position'][1]
+            else:
+                continue
+            
+            # Check if in location bounds
+            if y_min <= y_pos < y_max:
+                filtered[anchor_type].append(anchor)
+    
+    return filtered
+
+
+# =============================================================================
 # VEHICLE SPAWNING WITH ZONE CONSTRAINTS
 # =============================================================================
 
@@ -428,8 +564,41 @@ def spawn_vehicles_with_constraints(
 
 
 def main():
+    # =============================================================================
+    # CONFIGURATION - Prompt user for location
+    # =============================================================================
     print("\n" + "=" * 60)
     print("RANDOMIZATION TEST - 20 Captures")
+    print("=" * 60)
+    print("\nAvailable locations:")
+    for loc_num in sorted(LOCATION_BOUNDARIES.keys()):
+        y_min, y_max = LOCATION_BOUNDARIES[loc_num]
+        print(f"  {loc_num}: Y ∈ [{y_min}, {y_max})")
+    print("  0: Test all locations (no filter)")
+    
+    while True:
+        try:
+            user_input = input("\nSelect location to test (0-7): ").strip()
+            location_choice = int(user_input)
+            if location_choice == 0:
+                TEST_LOCATION = None
+                break
+            elif location_choice in LOCATION_BOUNDARIES:
+                TEST_LOCATION = location_choice
+                break
+            else:
+                print(f"Invalid choice. Please enter 0-7.")
+        except ValueError:
+            print(f"Invalid input. Please enter a number 0-7.")
+        except KeyboardInterrupt:
+            print("\nTest cancelled.")
+            return
+    
+    print("\n" + "=" * 60)
+    if TEST_LOCATION:
+        print(f"LOCATION FILTER: Testing Location {TEST_LOCATION} only")
+    else:
+        print("LOCATION FILTER: Testing all locations")
     print("=" * 60)
     print("\nInitializing controllers...")
     
@@ -467,6 +636,32 @@ def main():
     # Detect vehicle pool once at startup
     print("\nDetecting vehicle pool...")
     spawner.detect_vehicle_pool()
+    
+    # Apply location filter if specified
+    if TEST_LOCATION:
+        print(f"\nApplying location {TEST_LOCATION} filter...")
+        
+        # Count original vehicle anchors
+        original_parking = len(spawner.anchor_config.get('parking', {}).get('anchors', [])) if spawner.anchor_config else 0
+        original_lanes = len(spawner.anchor_config.get('lanes', {}).get('definitions', [])) if spawner.anchor_config else 0
+        original_sidewalk = 1 if spawner.anchor_config and 'sidewalk' in spawner.anchor_config else 0
+        
+        # Filter vehicle anchor config (pass spawner object for UE5 queries)
+        if spawner.anchor_config:
+            spawner.anchor_config = filter_anchor_config_by_location(spawner, TEST_LOCATION)
+        
+        # Count filtered vehicle anchors
+        filtered_parking = len(spawner.anchor_config.get('parking', {}).get('anchors', [])) if spawner.anchor_config else 0
+        filtered_lanes = len(spawner.anchor_config.get('lanes', {}).get('definitions', [])) if spawner.anchor_config else 0
+        filtered_sidewalk = 1 if spawner.anchor_config and 'sidewalk' in spawner.anchor_config else 0
+        
+        # Filter prop anchors
+        original_anchors = {k: len(v) for k, v in prop_controller.detected_anchors.items()}
+        prop_controller.detected_anchors = filter_anchors_by_location(prop_controller.detected_anchors, TEST_LOCATION)
+        filtered_anchors = {k: len(v) for k, v in prop_controller.detected_anchors.items()}
+        
+        print(f"  Vehicle anchors: parking {original_parking}→{filtered_parking}, lanes {original_lanes}→{filtered_lanes}, sidewalk {original_sidewalk}→{filtered_sidewalk}")
+        print(f"  Prop anchors filtered: {sum(original_anchors.values())} → {sum(filtered_anchors.values())}")
     
     # Detect lighting actors for time augmentation
     print("\nDetecting lighting actors...")
