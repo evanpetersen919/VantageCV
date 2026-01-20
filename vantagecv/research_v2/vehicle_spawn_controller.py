@@ -317,22 +317,66 @@ class VehicleSpawnController:
     # ========================================================================
     
     def _get_parking_anchors(self) -> List[str]:
-        """Get parking anchor names"""
+        """Get parking anchor names (supports both old and new YAML formats)"""
         if not self.anchor_config:
             return []
-        return self.anchor_config.get("parking", {}).get("anchors", [])
+        
+        anchors = self.anchor_config.get("parking", {}).get("anchors", [])
+        
+        # Handle new format (list of dicts with 'name' key)
+        if anchors and isinstance(anchors[0], dict):
+            return [a['name'] for a in anchors]
+        
+        # Handle old format (list of strings)
+        return anchors
     
     def _get_lane_definitions(self) -> List[Dict]:
-        """Get lane definitions with start/end anchors"""
+        """Get lane definitions with start/end anchors (supports both old and new YAML formats)"""
         if not self.anchor_config:
             return []
-        return self.anchor_config.get("lanes", {}).get("definitions", [])
+        
+        definitions = self.anchor_config.get("lanes", {}).get("definitions", [])
+        
+        # Normalize format: new format uses 'start_anchor'/'end_anchor', old uses 'start'/'end'
+        normalized = []
+        for lane in definitions:
+            if 'start_anchor' in lane and 'end_anchor' in lane:
+                # New format - convert to old format
+                normalized.append({
+                    'id': lane.get('id', ''),
+                    'start': lane['start_anchor'],
+                    'end': lane['end_anchor'],
+                    'width_cm': lane.get('width_cm', 350.0)
+                })
+            else:
+                # Old format - pass through
+                normalized.append(lane)
+        
+        return normalized
     
     def _get_sidewalk_bounds(self) -> Optional[Tuple[Dict, Dict]]:
-        """Get sidewalk bounds from two corner anchors"""
+        """Get sidewalk bounds from two corner anchors (supports both old and new YAML formats)"""
         if not self.anchor_config:
             return None
         
+        # Try new format first (sidewalks with definitions list)
+        sidewalks = self.anchor_config.get("sidewalks", {})
+        if sidewalks:
+            definitions = sidewalks.get("definitions", [])
+            if definitions:
+                # Use first sidewalk definition
+                sidewalk = definitions[0]
+                anchor1 = sidewalk.get("anchor_1")
+                anchor2 = sidewalk.get("anchor_2")
+                
+                if anchor1 and anchor2:
+                    t1 = self._get_anchor_transform(anchor1)
+                    t2 = self._get_anchor_transform(anchor2)
+                    
+                    if t1 and t2:
+                        return (t1, t2)
+        
+        # Try old format (singular sidewalk with anchor_1/anchor_2)
         sidewalk = self.anchor_config.get("sidewalk", {})
         anchor1 = sidewalk.get("anchor_1")
         anchor2 = sidewalk.get("anchor_2")
