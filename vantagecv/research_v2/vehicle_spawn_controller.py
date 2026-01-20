@@ -428,18 +428,26 @@ class VehicleSpawnController:
         start_loc = start_transform["location"]
         end_loc = end_transform["location"]
         
+        # Calculate lane direction vector
+        dx = end_loc["X"] - start_loc["X"]
+        dy = end_loc["Y"] - start_loc["Y"]
+        
         # Interpolate position
-        x = start_loc["X"] + t * (end_loc["X"] - start_loc["X"])
-        y = start_loc["Y"] + t * (end_loc["Y"] - start_loc["Y"])
+        x = start_loc["X"] + t * dx
+        y = start_loc["Y"] + t * dy
         z = start_loc["Z"] + t * (end_loc["Z"] - start_loc["Z"])
         
-        # Use Start anchor's red arrow rotation (NOT geometric direction)
+        # Use Start anchor's red arrow rotation for vehicle facing direction
         yaw = start_transform["rotation"]["Yaw"]
         
-        # Apply lateral offset (perpendicular to lane)
-        perp_angle = math.radians(yaw + 90)
-        x += lateral_offset * math.cos(perp_angle)
-        y += lateral_offset * math.sin(perp_angle)
+        # Apply lateral offset PERPENDICULAR to lane direction (not anchor rotation)
+        lane_length = math.sqrt(dx*dx + dy*dy)
+        if lane_length > 0 and lateral_offset != 0:
+            # Perpendicular direction (rotate lane vector 90 degrees)
+            perp_x = -dy / lane_length
+            perp_y = dx / lane_length
+            x += lateral_offset * perp_x
+            y += lateral_offset * perp_y
         
         return {
             "location": {"X": x, "Y": y, "Z": z},
@@ -668,6 +676,9 @@ class VehicleSpawnController:
             
             location = transform["location"]
             
+            # Diagnostic logging for lane alignment issues
+            print(f"  [LANE DEBUG] {lane['id']}: start={lane.get('start', lane.get('start_anchor'))}, t={t:.2f}, lateral_offset={lateral_offset:.1f}cm, spawn_pos=({location['X']:.0f}, {location['Y']:.0f})")
+            
             # Get vehicle's default rotation from config
             vehicle = available[vehicle_idx]
             vehicle_name = vehicle["name"]
@@ -817,14 +828,13 @@ class VehicleSpawnController:
         loc1 = anchor1_transform["location"]
         loc2 = anchor2_transform["location"]
         
-        # Calculate bounding box
-        min_x = min(loc1["X"], loc2["X"])
-        max_x = max(loc1["X"], loc2["X"])
-        min_y = min(loc1["Y"], loc2["Y"])
-        max_y = max(loc1["Y"], loc2["Y"])
-        z = (loc1["Z"] + loc2["Z"]) / 2
+        # Sidewalk anchors define CENTERLINE (not bounding box)
+        # Calculate centerline direction for perpendicular offset
+        dx = loc2["X"] - loc1["X"]
+        dy = loc2["Y"] - loc1["Y"]
+        centerline_length = math.sqrt(dx*dx + dy*dy)
         
-        logger.info(f"Sidewalk bounds: X=[{min_x:.0f}, {max_x:.0f}] Y=[{min_y:.0f}, {max_y:.0f}]")
+        logger.info(f"Sidewalk centerline: ({loc1['X']:.0f}, {loc1['Y']:.0f}) → ({loc2['X']:.0f}, {loc2['Y']:.0f}), length={centerline_length:.0f}cm")
         
         # Get available vehicles
         available = []
@@ -841,9 +851,12 @@ class VehicleSpawnController:
         
         random.shuffle(available)
         
+        # Sidewalk config - small lateral offset from centerline
+        SIDEWALK_LATERAL_JITTER = 50.0  # ±50cm perpendicular offset from centerline
+        
         # Collision check: maintain minimum distance between spawns
-        MIN_SPACING = 100.0  # 100cm = 1m minimum distance
-        spawned_positions = []
+        MIN_SPACING = 150.0  # 150cm = 1.5m minimum distance along centerline
+        spawned_positions = []  # Store t-values along centerline
         spawned = []
         
         for i in range(min(count, len(available))):
@@ -851,27 +864,41 @@ class VehicleSpawnController:
             vehicle_name = vehicle["name"]
             category = vehicle["category"]
             
-            # Try to find non-overlapping position
+            # Try to find non-overlapping position along centerline
             max_attempts = 20
             for attempt in range(max_attempts):
-                # Random position within bounds
-                x = random.uniform(min_x, max_x)
-                y = random.uniform(min_y, max_y)
-                yaw = random.uniform(0, 360)
+                # Random position along centerline (0.0 = anchor1, 1.0 = anchor2)
+                t = random.uniform(0.1, 0.9)  # Avoid endpoints
                 
                 # Check collision with existing spawns
                 collision = False
-                for prev_pos in spawned_positions:
-                    dx = x - prev_pos[0]
-                    dy = y - prev_pos[1]
-                    dist = math.sqrt(dx*dx + dy*dy)
-                    if dist < MIN_SPACING:
+                for prev_t in spawned_positions:
+                    t_distance = abs(t - prev_t) * centerline_length
+                    if t_distance < MIN_SPACING:
                         collision = True
                         break
                 
                 if not collision:
-                    # Valid position found
-                    spawned_positions.append((x, y))
+                    # Valid position found - interpolate along centerline
+                    x = loc1["X"] + t * dx
+                    y = loc1["Y"] + t * dy
+                    z = loc1["Z"] + t * (loc2["Z"] - loc1["Z"])
+                    
+                    # Apply small perpendicular offset (perpendicular to centerline)
+                    lateral_offset = random.uniform(-SIDEWALK_LATERAL_JITTER, SIDEWALK_LATERAL_JITTER)
+                    if centerline_length > 0:
+                        # Perpendicular direction (rotate 90 degrees)
+                        perp_x = -dy / centerline_length
+                        perp_y = dx / centerline_length
+                        x += lateral_offset * perp_x
+                        y += lateral_offset * perp_y
+                    
+                    yaw = random.uniform(0, 360)
+                    
+                    spawned_positions.append(t)
+                    
+                    # Diagnostic logging for sidewalk zone violations
+                    print(f"  [SIDEWALK DEBUG] t={t:.2f}, lateral_offset={lateral_offset:.1f}cm, spawn_pos=({x:.0f}, {y:.0f})")
                     
                     # Build location and rotation dicts
                     location = {"X": x, "Y": y, "Z": z}

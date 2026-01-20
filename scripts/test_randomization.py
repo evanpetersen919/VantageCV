@@ -50,7 +50,7 @@ LOCATION_BOUNDARIES = {
 
 # Define which zone types are allowed for each vehicle category
 VEHICLE_ZONE_CONSTRAINTS = {
-    "bicycle": ["parking", "sidewalk"],  # Bikes: parking or sidewalk
+    "bicycle": ["sidewalk"],             # Bikes: sidewalk only
     "motorcycle": ["parking"],           # Motorcycles: parking only
     "bus": ["lane"],                     # Buses: lanes only
     "car": ["parking", "lane"],          # Cars: parking or lanes
