@@ -433,10 +433,8 @@ class VehicleSpawnController:
         y = start_loc["Y"] + t * (end_loc["Y"] - start_loc["Y"])
         z = start_loc["Z"] + t * (end_loc["Z"] - start_loc["Z"])
         
-        # Compute lane direction (yaw)
-        dx = end_loc["X"] - start_loc["X"]
-        dy = end_loc["Y"] - start_loc["Y"]
-        yaw = math.degrees(math.atan2(dy, dx))
+        # Use Start anchor's red arrow rotation (NOT geometric direction)
+        yaw = start_transform["rotation"]["Yaw"]
         
         # Apply lateral offset (perpendicular to lane)
         perp_angle = math.radians(yaw + 90)
@@ -914,30 +912,24 @@ class VehicleSpawnController:
         """Reset all spawned vehicles back to pool (hide + return to default position)"""
         logger.info(f"Resetting {len(self.spawned_vehicles)} vehicles to pool")
         
-        pool = self._get_vehicle_pool()
-        
-        # Build lookup for default transforms
-        defaults = {}
-        for cat, vehicles in pool.items():
-            for v in vehicles:
-                defaults[v["name"]] = v.get("default_transform", {})
-        
         success_count = 0
         
         for instance in self.spawned_vehicles:
             vehicle_name = instance.name
-            default = defaults.get(vehicle_name, {})
             
             # Hide vehicle
             self._set_actor_hidden(vehicle_name, True)
             
-            # Return to default position
-            if default:
+            # Return to original pool position using stored transforms
+            if vehicle_name in self.vehicle_pool_original_transforms:
+                default = self.vehicle_pool_original_transforms[vehicle_name]
                 location = default.get("location", {"X": 0, "Y": 0, "Z": 0})
                 rotation = default.get("rotation", {"Pitch": 0, "Yaw": 0, "Roll": 0})
                 self._teleport_actor(vehicle_name, location, rotation)
+                logger.info(f"  ✓ Reset {vehicle_name} to pool position X={location['X']:.0f}")
+            else:
+                logger.warning(f"  ⚠ No original transform for {vehicle_name}, leaving at current position")
             
-            logger.info(f"  ✓ Reset {vehicle_name}")
             success_count += 1
         
         self.spawned_vehicles.clear()

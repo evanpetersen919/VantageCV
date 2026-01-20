@@ -79,21 +79,37 @@ def filter_anchor_config_by_location(spawner, location: int) -> Dict:
     y_min, y_max = LOCATION_BOUNDARIES[location]
     filtered_config = {}
     
-    # Filter parking anchors (list of actor name strings)
+    # Filter parking anchors (list of dicts with name/position/yaw or old format strings)
     if 'parking' in spawner.anchor_config:
         parking_section = spawner.anchor_config['parking'].copy()
-        anchor_names = parking_section.get('anchors', [])
+        anchors = parking_section.get('anchors', [])
         
-        filtered_parking_names = []
-        for anchor_name in anchor_names:
-            # Fetch transform from UE5
-            transform = spawner._get_anchor_transform(anchor_name)
-            if transform:
-                y_pos = transform['location'].get('Y', 0)
-                if y_min <= y_pos < y_max:
-                    filtered_parking_names.append(anchor_name)
+        filtered_parking = []
+        for anchor in anchors:
+            # Handle both new format (dict) and old format (string)
+            if isinstance(anchor, dict):
+                anchor_name = anchor.get('name')
+                # Use position from YAML if available
+                if 'position' in anchor:
+                    y_pos = anchor['position'][1]  # Y is second element
+                    if y_min <= y_pos < y_max:
+                        filtered_parking.append(anchor)
+                else:
+                    # Fallback to fetching from UE5
+                    transform = spawner._get_anchor_transform(anchor_name)
+                    if transform:
+                        y_pos = transform['location'].get('Y', 0)
+                        if y_min <= y_pos < y_max:
+                            filtered_parking.append(anchor)
+            else:
+                # Old format: anchor is just a string name
+                transform = spawner._get_anchor_transform(anchor)
+                if transform:
+                    y_pos = transform['location'].get('Y', 0)
+                    if y_min <= y_pos < y_max:
+                        filtered_parking.append(anchor)
         
-        parking_section['anchors'] = filtered_parking_names
+        parking_section['anchors'] = filtered_parking
         filtered_config['parking'] = parking_section
     
     # Filter lanes (list of dicts with start/end anchor names)
