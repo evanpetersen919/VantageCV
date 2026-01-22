@@ -338,16 +338,23 @@ class VehicleSpawnController:
         definitions = self.anchor_config.get("lanes", {}).get("definitions", [])
         
         # Normalize format: new format uses 'start_anchor'/'end_anchor', old uses 'start'/'end'
+        # IMPORTANT: Preserve start_position/end_position for YAML-based positioning
         normalized = []
         for lane in definitions:
             if 'start_anchor' in lane and 'end_anchor' in lane:
-                # New format - convert to old format
-                normalized.append({
+                # New format - convert to old format but PRESERVE YAML positions
+                normalized_lane = {
                     'id': lane.get('id', ''),
                     'start': lane['start_anchor'],
                     'end': lane['end_anchor'],
                     'width_cm': lane.get('width_cm', 350.0)
-                })
+                }
+                # Preserve YAML positions if available (for aligned coordinates)
+                if 'start_position' in lane:
+                    normalized_lane['start_position'] = lane['start_position']
+                if 'end_position' in lane:
+                    normalized_lane['end_position'] = lane['end_position']
+                normalized.append(normalized_lane)
             else:
                 # Old format - pass through
                 normalized.append(lane)
@@ -355,7 +362,11 @@ class VehicleSpawnController:
         return normalized
     
     def _get_sidewalk_bounds(self) -> Optional[Tuple[Dict, Dict]]:
-        """Get sidewalk bounds from two corner anchors (supports both old and new YAML formats)"""
+        """Get sidewalk bounds from two corner anchors (supports both old and new YAML formats)
+        
+        Returns transforms with location from YAML if available (aligned coordinates),
+        otherwise queries UE5 for live positions.
+        """
         if not self.anchor_config:
             return None
         
@@ -370,11 +381,21 @@ class VehicleSpawnController:
                 anchor2 = sidewalk.get("anchor_2")
                 
                 if anchor1 and anchor2:
-                    t1 = self._get_anchor_transform(anchor1)
-                    t2 = self._get_anchor_transform(anchor2)
-                    
-                    if t1 and t2:
+                    # Use YAML positions if available (aligned coordinates)
+                    if 'position_1' in sidewalk and 'position_2' in sidewalk:
+                        pos1 = sidewalk['position_1']
+                        pos2 = sidewalk['position_2']
+                        t1 = {"location": {"X": pos1[0], "Y": pos1[1], "Z": pos1[2]}}
+                        t2 = {"location": {"X": pos2[0], "Y": pos2[1], "Z": pos2[2]}}
+                        logger.info(f"[SIDEWALK YAML] Using YAML positions: Y={pos1[1]}")
                         return (t1, t2)
+                    else:
+                        # Fallback to UE5 query
+                        logger.info(f"[SIDEWALK UE5] No YAML positions, querying UE5")
+                        t1 = self._get_anchor_transform(anchor1)
+                        t2 = self._get_anchor_transform(anchor2)
+                        if t1 and t2:
+                            return (t1, t2)
         
         # Try old format (singular sidewalk with anchor_1/anchor_2)
         sidewalk = self.anchor_config.get("sidewalk", {})
@@ -419,14 +440,23 @@ class VehicleSpawnController:
         Returns:
             Dict with location and rotation facing lane direction
         """
-        start_transform = self._get_anchor_transform(lane["start"])
-        end_transform = self._get_anchor_transform(lane["end"])
-        
-        if not start_transform or not end_transform:
-            return None
-        
-        start_loc = start_transform["location"]
-        end_loc = end_transform["location"]
+        # Use YAML positions if available (aligned coordinates), otherwise query UE5
+        if 'start_position' in lane and 'end_position' in lane:
+            start_loc = {"X": lane['start_position'][0], "Y": lane['start_position'][1], "Z": lane['start_position'][2]}
+            end_loc = {"X": lane['end_position'][0], "Y": lane['end_position'][1], "Z": lane['end_position'][2]}
+            logger.debug(f"[LANE YAML] Using YAML positions: start_Y={start_loc['Y']}, end_Y={end_loc['Y']}")
+            # Still need rotation from UE5
+            start_transform = self._get_anchor_transform(lane["start"])
+            if not start_transform:
+                return None
+        else:
+            logger.debug(f"[LANE UE5] Falling back to UE5 positions (no start_position/end_position in lane)")
+            start_transform = self._get_anchor_transform(lane["start"])
+            end_transform = self._get_anchor_transform(lane["end"])
+            if not start_transform or not end_transform:
+                return None
+            start_loc = start_transform["location"]
+            end_loc = end_transform["location"]
         
         # Calculate lane direction vector
         dx = end_loc["X"] - start_loc["X"]
@@ -632,7 +662,10 @@ class VehicleSpawnController:
         
         # Lane config
         lane_config = self.anchor_config.get("lanes", {})
-        lateral_jitter = lane_config.get("lateral_jitter_cm", 30.0)
+        # STRICT CENTERLINE: No lateral offset allowed - vehicles must spawn on centerline
+        # Maximum tolerance for validation (reject if exceeded)
+        MAX_CENTERLINE_TOLERANCE_CM = 10.0
+        lateral_jitter = 0.0  # DISABLED: lane_config.get("lateral_jitter_cm", 30.0)
         yaw_jitter = lane_config.get("yaw_jitter_degrees", 2.0)
         
         spawned = []
@@ -675,9 +708,16 @@ class VehicleSpawnController:
                 continue
             
             location = transform["location"]
+
+            # VALIDATION: Check distance from centerline
+            centerline_distance = abs(lateral_offset)
+            if centerline_distance > MAX_CENTERLINE_TOLERANCE_CM:
+                logger.error(f"[LANE REJECT] {lane['id']}: centerline_distance={centerline_distance:.1f}cm > tolerance={MAX_CENTERLINE_TOLERANCE_CM}cm - SPAWN REJECTED")
+                print(f"  [LANE REJECT] {lane['id']}: distance from centerline {centerline_distance:.1f}cm exceeds {MAX_CENTERLINE_TOLERANCE_CM}cm tolerance")
+                continue
             
-            # Diagnostic logging for lane alignment issues
-            print(f"  [LANE DEBUG] {lane['id']}: start={lane.get('start', lane.get('start_anchor'))}, t={t:.2f}, lateral_offset={lateral_offset:.1f}cm, spawn_pos=({location['X']:.0f}, {location['Y']:.0f})")
+            # Diagnostic logging for lane alignment
+            print(f"  [LANE OK] {lane['id']}: t={t:.2f}, centerline_dist={centerline_distance:.1f}cm (max={MAX_CENTERLINE_TOLERANCE_CM}cm), pos=({location['X']:.0f}, {location['Y']:.0f})")
             
             # Get vehicle's default rotation from config
             vehicle = available[vehicle_idx]
@@ -851,8 +891,10 @@ class VehicleSpawnController:
         
         random.shuffle(available)
         
-        # Sidewalk config - small lateral offset from centerline
-        SIDEWALK_LATERAL_JITTER = 50.0  # ±50cm perpendicular offset from centerline
+        # Sidewalk config - STRICT CENTERLINE: No lateral offset allowed
+        # Maximum tolerance for validation (reject if exceeded)
+        SIDEWALK_MAX_CENTERLINE_TOLERANCE_CM = 10.0
+        SIDEWALK_LATERAL_JITTER = 0.0  # DISABLED: ±50cm was too much, causes zone violations
         
         # Collision check: maintain minimum distance between spawns
         MIN_SPACING = 150.0  # 150cm = 1.5m minimum distance along centerline
@@ -895,10 +937,17 @@ class VehicleSpawnController:
                     
                     yaw = random.uniform(0, 360)
                     
+                    # VALIDATION: Check distance from centerline
+                    centerline_distance = abs(lateral_offset)
+                    if centerline_distance > SIDEWALK_MAX_CENTERLINE_TOLERANCE_CM:
+                        logger.error(f"[SIDEWALK REJECT] centerline_distance={centerline_distance:.1f}cm > tolerance={SIDEWALK_MAX_CENTERLINE_TOLERANCE_CM}cm - SPAWN REJECTED")
+                        print(f"  [SIDEWALK REJECT] distance from centerline {centerline_distance:.1f}cm exceeds {SIDEWALK_MAX_CENTERLINE_TOLERANCE_CM}cm tolerance")
+                        continue
+                    
                     spawned_positions.append(t)
                     
-                    # Diagnostic logging for sidewalk zone violations
-                    print(f"  [SIDEWALK DEBUG] t={t:.2f}, lateral_offset={lateral_offset:.1f}cm, spawn_pos=({x:.0f}, {y:.0f})")
+                    # Diagnostic logging for sidewalk - centerline verification
+                    print(f"  [SIDEWALK OK] t={t:.2f}, centerline_dist={centerline_distance:.1f}cm (max={SIDEWALK_MAX_CENTERLINE_TOLERANCE_CM}cm), pos=({x:.0f}, {y:.0f})")
                     
                     # Build location and rotation dicts
                     location = {"X": x, "Y": y, "Z": z}

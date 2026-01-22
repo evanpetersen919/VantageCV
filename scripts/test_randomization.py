@@ -338,14 +338,20 @@ def filter_anchor_config_by_location(spawner, location: int) -> Dict:
         
         filtered_lanes = []
         for lane in lane_defs:
-            # Handle both old format (start/end) and new format (start_anchor/end_anchor)
-            start_name = lane.get('start_anchor') or lane.get('start')
-            if start_name:
-                transform = spawner._get_anchor_transform(start_name)
-                if transform:
-                    y_pos = transform['location'].get('Y', 0)
-                    if y_min <= y_pos < y_max:
-                        filtered_lanes.append(lane)
+            # Use YAML position if available, otherwise query UE5
+            if 'start_position' in lane:
+                y_pos = lane['start_position'][1]  # Y is second element
+                if y_min <= y_pos < y_max:
+                    filtered_lanes.append(lane)
+            else:
+                # Fallback to UE5 query
+                start_name = lane.get('start_anchor') or lane.get('start')
+                if start_name:
+                    transform = spawner._get_anchor_transform(start_name)
+                    if transform:
+                        y_pos = transform['location'].get('Y', 0)
+                        if y_min <= y_pos < y_max:
+                            filtered_lanes.append(lane)
         
         lanes_section['definitions'] = filtered_lanes
         filtered_config['lanes'] = lanes_section
@@ -358,13 +364,20 @@ def filter_anchor_config_by_location(spawner, location: int) -> Dict:
         
         filtered_sidewalks = []
         for sidewalk in sidewalk_defs:
-            anchor_1_name = sidewalk.get('anchor_1')
-            if anchor_1_name:
-                transform = spawner._get_anchor_transform(anchor_1_name)
-                if transform:
-                    y_pos = transform['location'].get('Y', 0)
-                    if y_min <= y_pos < y_max:
-                        filtered_sidewalks.append(sidewalk)
+            # Use YAML position if available, otherwise query UE5
+            if 'position_1' in sidewalk:
+                y_pos = sidewalk['position_1'][1]  # Y is second element
+                if y_min <= y_pos < y_max:
+                    filtered_sidewalks.append(sidewalk)
+            else:
+                # Fallback to UE5 query
+                anchor_1_name = sidewalk.get('anchor_1')
+                if anchor_1_name:
+                    transform = spawner._get_anchor_transform(anchor_1_name)
+                    if transform:
+                        y_pos = transform['location'].get('Y', 0)
+                        if y_min <= y_pos < y_max:
+                            filtered_sidewalks.append(sidewalk)
         
         sidewalks_section['definitions'] = filtered_sidewalks
         filtered_config['sidewalks'] = sidewalks_section
@@ -759,8 +772,12 @@ def main():
     
     # Wrap entire test in try/finally for guaranteed cleanup
     try:
+        import random
+        base_seed = random.randint(0, 1000000)  # Random base seed for this run
+        print(f"\nRun seed base: {base_seed}")
+        
         for i in range(20):
-            seed = i + 2000
+            seed = base_seed + i
             
             # Vary parameters
             if i % 3 == 0:

@@ -1,6 +1,6 @@
 manifest_version: 2
 classification_mode: automatic
-level_name: automobileV2
+level_name: AutoClassifiedLevel
 eligibility_scale:
 - 0.3
 - 0.3
@@ -41,86 +41,86 @@ parking:
     yaw: -90.0
   - name: StaticMeshActor_0
     position:
-    - 10980.78
-    - 26004.02
+    - 10996.19
+    - 25961.74
     - 1.66
     yaw: 110.01
   - name: StaticMeshActor_111
     position:
-    - 12964.48
-    - 26226.37
+    - 12979.88
+    - 26184.09
     - 1.66
     yaw: 110.01
-  - name: StaticMeshActor_4
+  - name: StaticMeshActor_273
     position:
-    - 11303.74
-    - 25993.94
+    - 12646.56
+    - 26182.93
     - 1.66
     yaw: 110.01
-  - name: StaticMeshActor_68
+  - name: StaticMeshActor_274
     position:
-    - 11623.27
-    - 25993.26
+    - 12320.19
+    - 26202.4
     - 1.66
     yaw: 110.01
-  - name: StaticMeshActor_76
+  - name: StaticMeshActor_354
     position:
-    - 12299.78
-    - 26239.68
+    - 11643.67
+    - 25955.98
     - 1.66
     yaw: 110.01
-  - name: StaticMeshActor_77
+  - name: StaticMeshActor_364
     position:
-    - 12626.16
-    - 26220.21
+    - 11324.14
+    - 25956.66
     - 1.66
     yaw: 110.01
   - name: StaticMeshActor_101
     position:
-    - 13650.57
-    - 46380.0
+    - 13645.51
+    - 46615.0
     - 61.66
     yaw: 90.01
   - name: StaticMeshActor_102
     position:
-    - 13650.71
-    - 45830.0
+    - 13645.76
+    - 45620.0
     - 61.66
     yaw: -89.99
   - name: StaticMeshActor_103
     position:
-    - 14330.57
-    - 46380.16
+    - 14325.51
+    - 46615.16
     - 61.66
     yaw: 90.01
   - name: StaticMeshActor_105
     position:
-    - 14330.71
-    - 45840.16
+    - 14325.76
+    - 45630.16
     - 61.66
     yaw: -89.99
   - name: StaticMeshActor_107
     position:
-    - 12940.71
-    - 45829.82
+    - 12935.76
+    - 45619.82
     - 61.66
     yaw: -89.99
   - name: StaticMeshActor_109
     position:
-    - 12940.57
-    - 46389.82
+    - 12935.51
+    - 46624.82
     - 61.66
     yaw: 90.01
   - name: StaticMeshActor_82
     position:
-    - 12230.57
-    - 46389.65
+    - 12230.51
+    - 46624.65
     - 61.66
     yaw: 90.01
   - name: StaticMeshActor_95
     position:
-    - 12230.71
-    - 45819.65
+    - 12225.76
+    - 45609.65
     - 61.66
     yaw: -89.99
   - name: StaticMeshActor_141
@@ -251,11 +251,11 @@ lanes:
     end_anchor: StaticMeshActor_28
     start_position:
     - 12505.0
-    - 8455
+    - 8845.0
     - 24.27
     end_position:
     - 9005
-    - 8845
+    - 8845.0
     - 10
     dot_product: 1.0
   - id: lane_2
@@ -263,11 +263,11 @@ lanes:
     end_anchor: StaticMeshActor_36
     start_position:
     - 9005
-    - 9395
+    - 9395.0
     - 10
     end_position:
     - 12505
-    - 9395
+    - 9395.0
     - 10
     dot_product: 1.0
   - id: lane_3
@@ -286,7 +286,7 @@ lanes:
     start_anchor: StaticMeshActor_38
     end_anchor: StaticMeshActor_42
     start_position:
-    - 13685
+    - 13685.0
     - 10055
     - 15
     end_position:
@@ -323,11 +323,11 @@ lanes:
     end_anchor: StaticMeshActor_117
     start_position:
     - 10795.0
-    - 44305.0
+    - 44315.0
     - 60
     end_position:
     - 15215.0
-    - 44325.0
+    - 44315.0
     - 60
     dot_product: 1.0
   - id: lane_8
@@ -470,11 +470,11 @@ sidewalks:
     anchor_2: StaticMeshActor_6
     position_1:
     - 12505
-    - 8845
+    - 8455.0
     - 10
     position_2:
-    - 9005.0
-    - 8455
+    - 9520.0
+    - 8455.0
     - 24.27
     dot_product: -1.0
   - id: sidewalk_2

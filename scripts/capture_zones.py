@@ -742,23 +742,68 @@ def generate_classified_manifest(
         elif zone.zone_type == ZoneType.ROAD:
             # First anchor = start, second = end (based on discovery order)
             anchor_a, anchor_b = zone.anchors
+            
+            # Align lane positions: if Y coordinates are close, snap to same Y (horizontal lane)
+            start_pos = list(anchor_a.transform.position)
+            end_pos = list(anchor_b.transform.position)
+            
+            y_diff = abs(start_pos[1] - end_pos[1])
+            x_diff = abs(start_pos[0] - end_pos[0])
+            
+            # If lane is nearly horizontal (Y difference < 20% of X difference), align Y coords
+            if x_diff > 0 and y_diff < (0.20 * x_diff):
+                # Use average Y for both endpoints
+                avg_y = (start_pos[1] + end_pos[1]) / 2.0
+                start_pos[1] = avg_y
+                end_pos[1] = avg_y
+                print(f"  [ALIGN] {anchor_a.name}↔{anchor_b.name}: Y aligned to {avg_y:.2f} (diff was {y_diff:.2f})")
+            
+            # If lane is nearly vertical (X difference < 20% of Y difference), align X coords
+            elif y_diff > 0 and x_diff < (0.20 * y_diff):
+                avg_x = (start_pos[0] + end_pos[0]) / 2.0
+                start_pos[0] = avg_x
+                end_pos[0] = avg_x
+                print(f"  [ALIGN] {anchor_a.name}↔{anchor_b.name}: X aligned to {avg_x:.2f} (diff was {x_diff:.2f})")
+            
             lanes.append({
                 "id": f"lane_{len(lanes) + 1}",
                 "start_anchor": anchor_a.name,
                 "end_anchor": anchor_b.name,
-                "start_position": [round(p, 2) for p in anchor_a.transform.position],
-                "end_position": [round(p, 2) for p in anchor_b.transform.position],
+                "start_position": [round(p, 2) for p in start_pos],
+                "end_position": [round(p, 2) for p in end_pos],
                 "dot_product": round(zone.dot_product, 4)
             })
         
         elif zone.zone_type == ZoneType.SIDEWALK:
             anchor_a, anchor_b = zone.anchors
+            
+            # Align sidewalk positions: if Y coordinates are close, snap to same Y
+            pos_1 = list(anchor_a.transform.position)
+            pos_2 = list(anchor_b.transform.position)
+            
+            y_diff = abs(pos_1[1] - pos_2[1])
+            x_diff = abs(pos_1[0] - pos_2[0])
+            
+            # If sidewalk is nearly horizontal, align Y coords
+            if x_diff > 0 and y_diff < (0.20 * x_diff):
+                avg_y = (pos_1[1] + pos_2[1]) / 2.0
+                pos_1[1] = avg_y
+                pos_2[1] = avg_y
+                print(f"  [ALIGN] {anchor_a.name}↔{anchor_b.name}: Y aligned to {avg_y:.2f} (diff was {y_diff:.2f})")
+            
+            # If sidewalk is nearly vertical, align X coords
+            elif y_diff > 0 and x_diff < (0.20 * y_diff):
+                avg_x = (pos_1[0] + pos_2[0]) / 2.0
+                pos_1[0] = avg_x
+                pos_2[0] = avg_x
+                print(f"  [ALIGN] {anchor_a.name}↔{anchor_b.name}: X aligned to {avg_x:.2f} (diff was {x_diff:.2f})")
+            
             sidewalks.append({
                 "id": f"sidewalk_{len(sidewalks) + 1}",
                 "anchor_1": anchor_a.name,
                 "anchor_2": anchor_b.name,
-                "position_1": [round(p, 2) for p in anchor_a.transform.position],
-                "position_2": [round(p, 2) for p in anchor_b.transform.position],
+                "position_1": [round(p, 2) for p in pos_1],
+                "position_2": [round(p, 2) for p in pos_2],
                 "dot_product": round(zone.dot_product, 4)
             })
     
