@@ -119,7 +119,7 @@ class SceneValidationController:
                  host: str = "127.0.0.1", 
                  port: int = 30010,
                  level_path: str = "/Game/automobileV2.automobileV2",
-                 config_path: str = "configs/levels/automobileV2_anchors.yaml",
+                 config_path: str = "configs/levels/automobileV2_anchors_detected.yaml",
                  vehicle_config_path: str = "configs/levels/automobileV2_vehicles.yaml"):
         self.base_url = f"http://{host}:{port}/remote"
         self.level_path = level_path

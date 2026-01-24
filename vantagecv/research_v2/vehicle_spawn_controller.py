@@ -61,7 +61,7 @@ class VehicleSpawnController:
                  host: str = "127.0.0.1",
                  port: int = 30010,
                  level_path: str = "/Game/automobileV2.automobileV2",
-                 anchor_config_path: str = "configs/levels/automobileV2_anchors.yaml",
+                 anchor_config_path: str = "configs/levels/automobileV2_anchors_detected.yaml",
                  vehicle_config_path: str = "configs/levels/automobileV2_vehicles.yaml"):
         self.base_url = f"http://{host}:{port}/remote"
         self.level_path = level_path
@@ -428,12 +428,27 @@ class VehicleSpawnController:
             "rotation": rot.get("ReturnValue", {})
         }
     
+    def _discover_lane_segments(self, lane: Dict) -> List[Dict]:
+        """
+        Returns the lane as a single segment for spawning.
+        We constrain `t` to middle portion to avoid edge artifacts.
+        
+        Returns:
+            List with single lane segment
+        """
+        return [{
+            'start_anchor': lane.get('start_anchor'),
+            'end_anchor': lane.get('end_anchor'),
+            'start_position': lane.get('start_position'),
+            'end_position': lane.get('end_position')
+        }]
+    
     def _compute_lane_transform(self, lane: Dict, t: float) -> Optional[Dict]:
         """
         Compute position and rotation along a lane centerline.
         
         Args:
-            lane: Lane definition with start/end anchors
+            lane: Lane definition with start/end anchors (or segment)
             t: Position along lane (0.0 = start, 1.0 = end)
         
         Returns:
@@ -443,13 +458,21 @@ class VehicleSpawnController:
         if 'start_position' in lane and 'end_position' in lane:
             start_loc = {"X": lane['start_position'][0], "Y": lane['start_position'][1], "Z": lane['start_position'][2]}
             end_loc = {"X": lane['end_position'][0], "Y": lane['end_position'][1], "Z": lane['end_position'][2]}
-            # Still need rotation from UE5
-            start_transform = self._get_anchor_transform(lane["start"])
+            # Try to get rotation from UE5, use default if fails
+            start_anchor = lane.get("start", lane.get("start_anchor"))
+            start_transform = self._get_anchor_transform(start_anchor)
             if not start_transform:
-                return None
+                # Compute rotation from lane direction
+                dx = end_loc["X"] - start_loc["X"]
+                dy = end_loc["Y"] - start_loc["Y"]
+                import math
+                yaw = math.degrees(math.atan2(dy, dx))
+                start_transform = {"rotation": {"Pitch": 0, "Yaw": yaw, "Roll": 0}}
         else:
-            start_transform = self._get_anchor_transform(lane["start"])
-            end_transform = self._get_anchor_transform(lane["end"])
+            start_anchor = lane.get("start", lane.get("start_anchor"))
+            end_anchor = lane.get("end", lane.get("end_anchor"))
+            start_transform = self._get_anchor_transform(start_anchor)
+            end_transform = self._get_anchor_transform(end_anchor)
             if not start_transform or not end_transform:
                 return None
             start_loc = start_transform["location"]
@@ -672,8 +695,20 @@ class VehicleSpawnController:
             # Try to find non-overlapping position
             max_attempts = 10
             for attempt in range(max_attempts):
+                # Pick random lane
                 lane = random.choice(lanes)
-                t = random.uniform(0.2, 0.8)  # Avoid edges
+                
+                # Discover mesh segments for this lane
+                segments = self._discover_lane_segments(lane)
+                if not segments:
+                    continue
+                
+                # Pick random segment
+                segment = random.choice(segments)
+                
+                # Spawn ONLY in the very center of each segment to avoid mesh edge issues
+                # Use t=0.4-0.6 (center 20%) instead of 0.3-0.7 to stay well within mesh bounds
+                t = random.uniform(0.4, 0.6)  # Very conservative - center only
                 
                 # Check for overlap with existing positions on same lane
                 overlap = False
@@ -688,7 +723,8 @@ class VehicleSpawnController:
                 logger.warning(f"Could not find non-overlapping lane position after {max_attempts} attempts")
                 continue
             
-            transform = self._compute_lane_transform(lane, t)
+            # Compute transform using the specific mesh segment
+            transform = self._compute_lane_transform(segment, t)
             if not transform:
                 logger.error(f"Could not compute lane transform for {lane['id']}")
                 continue
@@ -726,16 +762,19 @@ class VehicleSpawnController:
                 print(f"  [LANE REJECT] {lane['id']}: OFF CENTERLINE by {centerline_distance:.2f}cm - REJECTED")
                 continue
             
-            # Get mesh names for logging
-            mesh_a = lane.get('start', lane.get('start_anchor', 'unknown'))
-            mesh_b = lane.get('end', lane.get('end_anchor', 'unknown'))
+            # Get mesh names for logging (use segment, not full lane)
+            mesh_a = segment.get('start_anchor', 'unknown')
+            mesh_b = segment.get('end_anchor', 'unknown')
             
             # Enhanced diagnostic logging
-            print(f"  [LANE OK] {lane['id']}: mesh {mesh_a} -> {mesh_b}")
+            print(f"  [LANE OK] {lane['id']}: segment {mesh_a} -> {mesh_b}")
             print(f"            start=({start_loc['X']:.0f}, {start_loc['Y']:.0f}, {start_loc['Z']:.0f})")
             print(f"            end=({end_loc['X']:.0f}, {end_loc['Y']:.0f}, {end_loc['Z']:.0f})")
             print(f"            spawn=({location['X']:.0f}, {location['Y']:.0f}, {location['Z']:.0f}) at t={t:.2f}")
             print(f"            centerline_dist={centerline_distance:.2f}cm (max={MAX_CENTERLINE_TOLERANCE_CM}cm)")
+            
+            # Log rotation details BEFORE computing final rotation
+            lane_yaw = transform["rotation"]["Yaw"]
             
             # Get vehicle's default rotation from config
             vehicle = available[vehicle_idx]
@@ -743,15 +782,16 @@ class VehicleSpawnController:
             category = vehicle["category"]
             vehicle_default_yaw = vehicle.get("default_transform", {}).get("rotation", {}).get("Yaw", 0)
             
-            # Lane direction yaw (computed from atan2)
-            lane_yaw = transform["rotation"]["Yaw"]
-            
             # ADD lane direction to vehicle's default rotation
             rotation = {"Pitch": 0, "Roll": 0}
             rotation["Yaw"] = vehicle_default_yaw + lane_yaw
             
             # Add yaw jitter
-            rotation["Yaw"] += random.uniform(-yaw_jitter, yaw_jitter)
+            yaw_jitter_amount = random.uniform(-yaw_jitter, yaw_jitter)
+            rotation["Yaw"] += yaw_jitter_amount
+            
+            # Log rotation composition
+            print(f"            rotation: vehicle_default={vehicle_default_yaw:.1f}° + lane_dir={lane_yaw:.1f}° + jitter={yaw_jitter_amount:.1f}° = {rotation['Yaw']:.1f}°")
             
             # Track this position
             used_positions.append((lane["id"], t))
@@ -981,6 +1021,7 @@ class VehicleSpawnController:
                     print(f"                end=({loc2['X']:.0f}, {loc2['Y']:.0f}, {loc2['Z']:.0f})")
                     print(f"                spawn=({x:.0f}, {y:.0f}, {z:.0f}) at t={t:.2f}")
                     print(f"                centerline_dist={centerline_distance:.2f}cm (max={MAX_CENTERLINE_TOLERANCE_CM}cm)")
+                    print(f"                rotation: random_yaw={yaw:.1f}° (bidirectional sidewalk)")
                     
                     # Build location and rotation dicts
                     location = {"X": x, "Y": y, "Z": z}

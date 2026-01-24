@@ -439,7 +439,7 @@ class AnchorSpawnController:
         }
 
 
-def load_config(config_path: str = "configs/levels/automobileV2_anchors.yaml") -> AnchorSpawnConfig:
+def load_config(config_path: str = "configs/levels/automobileV2_anchors_detected.yaml") -> AnchorSpawnConfig:
     """Load anchor configuration from YAML file"""
     path = Path(config_path)
     if not path.exists():
@@ -451,7 +451,7 @@ def load_config(config_path: str = "configs/levels/automobileV2_anchors.yaml") -
 def create_controller(config_path: str = None) -> AnchorSpawnController:
     """Create a configured spawn controller"""
     if config_path is None:
-        config_path = "configs/levels/automobileV2_anchors.yaml"
+        config_path = "configs/levels/automobileV2_anchors_detected.yaml"
     
     config = load_config(config_path)
     return AnchorSpawnController(config)

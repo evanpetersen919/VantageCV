@@ -149,7 +149,7 @@ def test_spawn_simulation(controller: AnchorSpawnController):
 
 def main():
     parser = argparse.ArgumentParser(description="Test anchor spawn system")
-    parser.add_argument("--config", default="configs/levels/automobileV2_anchors.yaml",
+    parser.add_argument("--config", default="configs/levels/automobileV2_anchors_detected.yaml",
                        help="Path to anchor configuration YAML")
     parser.add_argument("--verify-only", action="store_true",
                        help="Only verify anchors exist, don't simulate spawning")

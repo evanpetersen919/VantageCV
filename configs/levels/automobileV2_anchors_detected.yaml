@@ -1,0 +1,587 @@
+manifest_version: 2
+classification_mode: automatic
+level_name: AutoClassifiedLevel
+eligibility_scale:
+- 0.3
+- 0.3
+- 0.3
+dot_product_tolerance: 0.1
+parking:
+  count: 39
+  anchors:
+  - name: StaticMeshActor_14
+    position:
+    - 10210.0
+    - 7698.47
+    - 44.35
+    yaw: -90.0
+  - name: StaticMeshActor_15
+    position:
+    - 9860.0
+    - 7698.47
+    - 44.35
+    yaw: -90.0
+  - name: StaticMeshActor_16
+    position:
+    - 10560.0
+    - 7698.47
+    - 44.35
+    yaw: -90.0
+  - name: StaticMeshActor_17
+    position:
+    - 10880.0
+    - 7698.47
+    - 44.35
+    yaw: -90.0
+  - name: StaticMeshActor_21
+    position:
+    - 11205.0
+    - 7698.47
+    - 44.35
+    yaw: -90.0
+  - name: StaticMeshActor_0
+    position:
+    - 10996.19
+    - 25961.74
+    - 1.66
+    yaw: 110.01
+  - name: StaticMeshActor_111
+    position:
+    - 12979.88
+    - 26184.09
+    - 1.66
+    yaw: 110.01
+  - name: StaticMeshActor_273
+    position:
+    - 12646.56
+    - 26182.93
+    - 1.66
+    yaw: 110.01
+  - name: StaticMeshActor_274
+    position:
+    - 12320.19
+    - 26202.4
+    - 1.66
+    yaw: 110.01
+  - name: StaticMeshActor_354
+    position:
+    - 11643.67
+    - 25955.98
+    - 1.66
+    yaw: 110.01
+  - name: StaticMeshActor_364
+    position:
+    - 11324.14
+    - 25956.66
+    - 1.66
+    yaw: 110.01
+  - name: StaticMeshActor_101
+    position:
+    - 13645.51
+    - 46615.0
+    - 61.66
+    yaw: 90.01
+  - name: StaticMeshActor_102
+    position:
+    - 13645.76
+    - 45620.0
+    - 61.66
+    yaw: -89.99
+  - name: StaticMeshActor_103
+    position:
+    - 14325.51
+    - 46615.16
+    - 61.66
+    yaw: 90.01
+  - name: StaticMeshActor_105
+    position:
+    - 14325.76
+    - 45630.16
+    - 61.66
+    yaw: -89.99
+  - name: StaticMeshActor_107
+    position:
+    - 12935.76
+    - 45619.82
+    - 61.66
+    yaw: -89.99
+  - name: StaticMeshActor_109
+    position:
+    - 12935.51
+    - 46624.82
+    - 61.66
+    yaw: 90.01
+  - name: StaticMeshActor_82
+    position:
+    - 12230.51
+    - 46624.65
+    - 61.66
+    yaw: 90.01
+  - name: StaticMeshActor_95
+    position:
+    - 12225.76
+    - 45609.65
+    - 61.66
+    yaw: -89.99
+  - name: StaticMeshActor_141
+    position:
+    - 7625.0
+    - 86255.0
+    - 50
+    yaw: 180.0
+  - name: StaticMeshActor_155
+    position:
+    - 7625.0
+    - 85825.0
+    - 50
+    yaw: 180.0
+  - name: StaticMeshActor_157
+    position:
+    - 7655.0
+    - 84405.0
+    - 50
+    yaw: 180.0
+  - name: StaticMeshActor_159
+    position:
+    - 7655.0
+    - 84015.0
+    - 50
+    yaw: 180.0
+  - name: StaticMeshActor_161
+    position:
+    - 9635.0
+    - 83975.0
+    - 50
+    yaw: -0.0
+  - name: StaticMeshActor_163
+    position:
+    - 9635.0
+    - 83555.0
+    - 50
+    yaw: -0.0
+  - name: StaticMeshActor_165
+    position:
+    - 9635.0
+    - 83135.0
+    - 50
+    yaw: -0.0
+  - name: StaticMeshActor_167
+    position:
+    - 9635.0
+    - 84375.0
+    - 50
+    yaw: -0.0
+  - name: StaticMeshActor_169
+    position:
+    - 9635.0
+    - 84805.0
+    - 50
+    yaw: -0.0
+  - name: StaticMeshActor_170
+    position:
+    - 9635.0
+    - 85485.0
+    - 50
+    yaw: -0.0
+  - name: StaticMeshActor_172
+    position:
+    - 9635.0
+    - 85925.0
+    - 50
+    yaw: -0.0
+  - name: StaticMeshActor_174
+    position:
+    - 9635.0
+    - 86335.0
+    - 50
+    yaw: -0.0
+  - name: StaticMeshActor_176
+    position:
+    - 9635.0
+    - 86755.0
+    - 50
+    yaw: -0.0
+  - name: StaticMeshActor_177
+    position:
+    - 9635.0
+    - 87225.0
+    - 50
+    yaw: -0.0
+  - name: StaticMeshActor_211
+    position:
+    - 16315.0
+    - 131185.0
+    - 60
+    yaw: 180.0
+  - name: StaticMeshActor_215
+    position:
+    - 16315.0
+    - 131455.0
+    - 60
+    yaw: 180.0
+  - name: StaticMeshActor_216
+    position:
+    - 16315.0
+    - 131745.0
+    - 60
+    yaw: 180.0
+  - name: StaticMeshActor_217
+    position:
+    - 16315.0
+    - 132025.0
+    - 60
+    yaw: 180.0
+  - name: StaticMeshActor_218
+    position:
+    - 16315.0
+    - 132305.0
+    - 60
+    yaw: 180.0
+  - name: StaticMeshActor_219
+    position:
+    - 16315.0
+    - 132595.0
+    - 60
+    yaw: 180.0
+lanes:
+  count: 18
+  definitions:
+  - id: lane_1
+    start_anchor: StaticMeshActor_28
+    end_anchor: StaticMeshActor_32
+    start_position:
+    - 9005
+    - 8845.0
+    - 10
+    end_position:
+    - 12505
+    - 8845.0
+    - 10
+    dot_product: 1.0
+  - id: lane_2
+    start_anchor: StaticMeshActor_30
+    end_anchor: StaticMeshActor_36
+    start_position:
+    - 9005
+    - 9395.0
+    - 10
+    end_position:
+    - 12505
+    - 9395.0
+    - 10
+    dot_product: 1.0
+  - id: lane_3
+    start_anchor: StaticMeshActor_37
+    end_anchor: StaticMeshActor_40
+    start_position:
+    - 13145.0
+    - 10055
+    - 5
+    end_position:
+    - 13145.0
+    - 6845
+    - 15
+    dot_product: 1.0
+  - id: lane_4
+    start_anchor: StaticMeshActor_38
+    end_anchor: StaticMeshActor_42
+    start_position:
+    - 13685.0
+    - 10055
+    - 15
+    end_position:
+    - 13685.0
+    - 6845
+    - 15
+    dot_product: 1.0
+  - id: lane_5
+    start_anchor: StaticMeshActor_83
+    end_anchor: StaticMeshActor_88
+    start_position:
+    - 14325.0
+    - 24575.0
+    - 20
+    end_position:
+    - 9795.0
+    - 24575.0
+    - 20
+    dot_product: 1.0
+  - id: lane_6
+    start_anchor: StaticMeshActor_84
+    end_anchor: StaticMeshActor_86
+    start_position:
+    - 14325.0
+    - 24995.0
+    - 20
+    end_position:
+    - 9795.0
+    - 24995.0
+    - 20
+    dot_product: 1.0
+  - id: lane_7
+    start_anchor: StaticMeshActor_113
+    end_anchor: StaticMeshActor_117
+    start_position:
+    - 10795.0
+    - 44315.0
+    - 60
+    end_position:
+    - 15215.0
+    - 44315.0
+    - 60
+    dot_product: 1.0
+  - id: lane_8
+    start_anchor: StaticMeshActor_119
+    end_anchor: StaticMeshActor_87
+    start_position:
+    - 15215.0
+    - 43725.0
+    - 60
+    end_position:
+    - 10795.0
+    - 43725.0
+    - 60
+    dot_product: 1.0
+  - id: lane_9
+    start_anchor: StaticMeshActor_115
+    end_anchor: StaticMeshActor_126
+    start_position:
+    - 15125.0
+    - 70565.0
+    - 120
+    end_position:
+    - 18405.0
+    - 70565.0
+    - 120
+    dot_product: 1.0
+  - id: lane_10
+    start_anchor: StaticMeshActor_128
+    end_anchor: StaticMeshActor_130
+    start_position:
+    - 18405.0
+    - 71095.0
+    - 120
+    end_position:
+    - 15125.0
+    - 71095.0
+    - 120
+    dot_product: 1.0
+  - id: lane_11
+    start_anchor: StaticMeshActor_180
+    end_anchor: StaticMeshActor_182
+    start_position:
+    - 8285.0
+    - 88325.0
+    - 50
+    end_position:
+    - 8285.0
+    - 83495.0
+    - 50
+    dot_product: 1.0
+  - id: lane_12
+    start_anchor: StaticMeshActor_184
+    end_anchor: StaticMeshActor_185
+    start_position:
+    - 8945.0
+    - 83495.0
+    - 50
+    end_position:
+    - 8945.0
+    - 88315.0
+    - 50
+    dot_product: 1.0
+  - id: lane_13
+    start_anchor: StaticMeshActor_190
+    end_anchor: StaticMeshActor_191
+    start_position:
+    - 13605.0
+    - 108885.0
+    - 280
+    end_position:
+    - 13605.0
+    - 115065.0
+    - 280
+    dot_product: 1.0
+  - id: lane_14
+    start_anchor: StaticMeshActor_192
+    end_anchor: StaticMeshActor_193
+    start_position:
+    - 13985.0
+    - 115065.0
+    - 280
+    end_position:
+    - 13985.0
+    - 108885.0
+    - 280
+    dot_product: 1.0
+  - id: lane_15
+    start_anchor: StaticMeshActor_198
+    end_anchor: StaticMeshActor_199
+    start_position:
+    - 17125.0
+    - 129635.0
+    - 60
+    end_position:
+    - 14175.0
+    - 129635.0
+    - 60
+    dot_product: 1.0
+  - id: lane_16
+    start_anchor: StaticMeshActor_204
+    end_anchor: StaticMeshActor_205
+    start_position:
+    - 14175.0
+    - 130175.0
+    - 60
+    end_position:
+    - 17125.0
+    - 130175.0
+    - 60
+    dot_product: 1.0
+  - id: lane_17
+    start_anchor: StaticMeshActor_220
+    end_anchor: StaticMeshActor_225
+    start_position:
+    - 18255.0
+    - 132595.0
+    - 60
+    end_position:
+    - 18255.0
+    - 130735.0
+    - 60
+    dot_product: 1.0
+  - id: lane_18
+    start_anchor: StaticMeshActor_224
+    end_anchor: StaticMeshActor_227
+    start_position:
+    - 17585.0
+    - 132595.0
+    - 60
+    end_position:
+    - 17585.0
+    - 130735.0
+    - 60
+    dot_product: 1.0
+sidewalks:
+  count: 10
+  definitions:
+  - id: sidewalk_1
+    anchor_1: StaticMeshActor_12
+    anchor_2: StaticMeshActor_6
+    position_1:
+    - 12505.0
+    - 8455.0
+    - 24.27
+    position_2:
+    - 9520.0
+    - 8455.0
+    - 24.27
+    dot_product: -1.0
+  - id: sidewalk_2
+    anchor_1: StaticMeshActor_90
+    anchor_2: StaticMeshActor_91
+    position_1:
+    - 14105.0
+    - 25295.0
+    - -0.73
+    position_2:
+    - 12675.0
+    - 25295.0
+    - -0.73
+    dot_product: -1.0
+  - id: sidewalk_3
+    anchor_1: StaticMeshActor_92
+    anchor_2: StaticMeshActor_93
+    position_1:
+    - 13585.0
+    - 25395.0
+    - -0.73
+    position_2:
+    - 13585.0
+    - 26125.0
+    - -0.73
+    dot_product: -1.0
+  - id: sidewalk_4
+    anchor_1: StaticMeshActor_132
+    anchor_2: StaticMeshActor_137
+    position_1:
+    - 15125.0
+    - 70255.0
+    - 130
+    position_2:
+    - 17445.0
+    - 70255.0
+    - 130
+    dot_product: -1.0
+  - id: sidewalk_5
+    anchor_1: StaticMeshActor_138
+    anchor_2: StaticMeshActor_139
+    position_1:
+    - 18405.0
+    - 71385.0
+    - 130
+    position_2:
+    - 15595.0
+    - 71385.0
+    - 130
+    dot_product: -1.0
+  - id: sidewalk_6
+    anchor_1: StaticMeshActor_186
+    anchor_2: StaticMeshActor_189
+    position_1:
+    - 7875.0
+    - 86575.0
+    - 50
+    position_2:
+    - 7415.0
+    - 86575.0
+    - 50
+    dot_product: -1.0
+  - id: sidewalk_7
+    anchor_1: StaticMeshActor_194
+    anchor_2: StaticMeshActor_195
+    position_1:
+    - 14755.0
+    - 109155.0
+    - 280
+    position_2:
+    - 14755.0
+    - 113485.0
+    - 280
+    dot_product: -1.0
+  - id: sidewalk_8
+    anchor_1: StaticMeshActor_196
+    anchor_2: StaticMeshActor_197
+    position_1:
+    - 12905.0
+    - 109155.0
+    - 280
+    position_2:
+    - 12905.0
+    - 113485.0
+    - 280
+    dot_product: -1.0
+  - id: sidewalk_9
+    anchor_1: StaticMeshActor_207
+    anchor_2: StaticMeshActor_208
+    position_1:
+    - 15525.0
+    - 129005.0
+    - 60
+    position_2:
+    - 16475.0
+    - 129005.0
+    - 60
+    dot_product: -1.0
+  - id: sidewalk_10
+    anchor_1: StaticMeshActor_209
+    anchor_2: StaticMeshActor_210
+    position_1:
+    - 16475.0
+    - 130695.0
+    - 60
+    position_2:
+    - 15255.0
+    - 130695.0
+    - 60
+    dot_product: -1.0

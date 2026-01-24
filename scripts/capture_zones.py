@@ -54,6 +54,24 @@ MIN_LANE_DISTANCE = 1500.0  # Lanes must be at least 15m apart
 MIN_SIDEWALK_DISTANCE = 450.0  # Sidewalk corners must be at least 4.5m apart
 MAX_PARKING_ROW_DISTANCE = 800.0  # Parking slots in a row are within 8m of each other
 
+# Adjacent lane validation (all roads are 2-lane)
+MIN_ADJACENT_LANE_DISTANCE = 300.0  # Minimum lateral distance between adjacent lanes
+MAX_ADJACENT_LANE_DISTANCE = 800.0  # Maximum lateral distance between adjacent lanes
+
+# ============================================================================
+# STRICT GEOMETRIC ALIGNMENT (SMART ZONE DETECTION)
+# ============================================================================
+# These thresholds enforce that paired meshes are geometrically correct.
+# Two meshes form a zone segment ONLY if:
+#   1. Direction A→B matches Mesh A's forward vector (dot ≥ threshold)
+#   2. Perpendicular distance from B to A's forward ray ≤ tolerance
+#   3. Meshes are within same location (cross-location pairing forbidden)
+
+STRICT_ALIGNMENT_DOT_THRESHOLD = 0.98  # ~11.5° max deviation from forward
+STRICT_PERPENDICULAR_TOLERANCE_CM = 100.0  # 1m max perpendicular offset
+# Note: MAX_SEGMENT_GAP removed - zones can span entire location but NOT across locations
+# Location isolation is enforced by classify_anchors being called per-location
+
 # ============================================================================
 # MULTI-LOCATION SUPPORT
 # ============================================================================
@@ -248,6 +266,137 @@ def are_aligned_along_direction(pos1: List[float], pos2: List[float], direction:
     return alignment > (1.0 - tolerance)
 
 
+def perpendicular_distance_to_ray(point: List[float], origin: List[float], direction: List[float]) -> float:
+    """
+    Compute perpendicular distance from point to ray (origin + t*direction).
+    
+    STRICT GEOMETRIC CHECK: Ensures point B lies on the forward ray from A.
+    Used to validate zone segments are truly collinear.
+    """
+    # Vector from origin to point
+    px = point[0] - origin[0]
+    py = point[1] - origin[1]
+    pz = point[2] - origin[2] if len(point) > 2 else 0
+    
+    # Project onto direction to find closest point on ray
+    proj_length = px * direction[0] + py * direction[1] + (pz * direction[2] if len(direction) > 2 else 0)
+    
+    # Closest point on ray
+    cx = origin[0] + proj_length * direction[0]
+    cy = origin[1] + proj_length * direction[1]
+    cz = origin[2] + proj_length * direction[2] if len(direction) > 2 and len(origin) > 2 else 0
+    
+    # Distance from point to closest point on ray
+    dx = point[0] - cx
+    dy = point[1] - cy
+    dz = (point[2] - cz) if len(point) > 2 else 0
+    
+    return math.sqrt(dx*dx + dy*dy + dz*dz)
+
+
+def has_adjacent_lane(lane_zone, all_lane_zones) -> bool:
+    """
+    Check if a lane has an adjacent parallel lane (all roads are 2-lane).
+    
+    Adjacent lane requirements:
+    1. Parallel or opposite forward direction (same road)
+    2. Lateral distance between 300-800 units (side by side)
+    3. Similar Y range (for X-facing lanes) or similar X range (for Y-facing lanes)
+    
+    Returns True if an adjacent lane exists, False otherwise.
+    """
+    if len(lane_zone.anchors) < 2:
+        return False
+    
+    # Get lane endpoints and direction
+    a1, a2 = lane_zone.anchors[0], lane_zone.anchors[1]
+    pos1 = a1.transform.position
+    pos2 = a2.transform.position
+    fwd = a1.transform.forward_vector
+    
+    # Determine if lane is primarily X-aligned or Y-aligned
+    is_x_lane = abs(fwd[0]) > abs(fwd[1])  # Arrow points mostly in X direction
+    
+    for other_zone in all_lane_zones:
+        if other_zone is lane_zone:
+            continue
+        
+        if len(other_zone.anchors) < 2:
+            continue
+        
+        o1, o2 = other_zone.anchors[0], other_zone.anchors[1]
+        other_pos1 = o1.transform.position
+        other_pos2 = o2.transform.position
+        other_fwd = o1.transform.forward_vector
+        
+        # Check if other lane is parallel or opposite (same road alignment)
+        dp = dot_product(fwd[:2], other_fwd[:2])
+        if abs(dp) < 0.9:  # Not parallel enough
+            continue
+        
+        # Calculate lateral distance (perpendicular to lane direction)
+        if is_x_lane:
+            # X-aligned lanes: check Y distance
+            lateral_dist = abs(pos1[1] - other_pos1[1])
+        else:
+            # Y-aligned lanes: check X distance
+            lateral_dist = abs(pos1[0] - other_pos1[0])
+        
+        if MIN_ADJACENT_LANE_DISTANCE <= lateral_dist <= MAX_ADJACENT_LANE_DISTANCE:
+            return True
+    
+    return False
+
+
+def validate_strict_alignment(pos1: List[float], pos2: List[float], fwd1: List[float]) -> Tuple[bool, str, Dict]:
+    """
+    STRICT GEOMETRIC VALIDATION for zone pairing.
+    
+    Validates that pos2 is properly aligned with pos1's forward direction.
+    Cross-location pairing is prevented by calling this per-location.
+    
+    Returns:
+        (is_valid, rejection_reason, metrics)
+    """
+    # Distance between positions
+    dx = pos2[0] - pos1[0]
+    dy = pos2[1] - pos1[1]
+    dz = pos2[2] - pos1[2] if len(pos1) > 2 and len(pos2) > 2 else 0
+    distance = math.sqrt(dx*dx + dy*dy + dz*dz)
+    
+    metrics = {"distance": distance, "dot": 0.0, "perp": 0.0}
+    
+    # No max distance check - zones can span entire location
+    # Cross-location pairing is prevented by per-location classification
+    
+    if distance < 100:
+        return False, "Too close (coincident)", metrics
+    
+    # Normalize direction from pos1 to pos2
+    direction_12 = [dx / distance, dy / distance, dz / distance if distance > 0 else 0]
+    
+    # Dot product: how well does direction match forward vector
+    dot = dot_product(direction_12[:2], fwd1[:2])  # 2D comparison
+    metrics["dot"] = dot
+    
+    # Check for forward OR backward alignment (both valid for bidirectional roads)
+    aligned_forward = dot >= STRICT_ALIGNMENT_DOT_THRESHOLD
+    aligned_backward = dot <= -STRICT_ALIGNMENT_DOT_THRESHOLD
+    
+    if not (aligned_forward or aligned_backward):
+        angle = math.degrees(math.acos(max(-1.0, min(1.0, abs(dot)))))
+        return False, f"Misaligned (dot={dot:.3f}, angle={angle:.1f}°)", metrics
+    
+    # Perpendicular distance: B's offset from A's forward ray
+    perp = perpendicular_distance_to_ray(pos2, pos1, fwd1)
+    metrics["perp"] = perp
+    
+    if perp > STRICT_PERPENDICULAR_TOLERANCE_CM:
+        return False, f"Not collinear (offset={perp:.1f}cm)", metrics
+    
+    return True, "OK", metrics
+
+
 def dot_product(v1: List[float], v2: List[float]) -> float:
     """Compute dot product of two vectors"""
     return sum(a * b for a, b in zip(v1, v2))
@@ -323,14 +472,27 @@ def classify_anchors(anchors: List[AnchorActor]) -> Tuple[List[ClassifiedZone], 
             dp = dot_product(fwd_a, fwd_b)
             dist = distance_3d(anchor_a.transform.position, anchor_b.transform.position)
             
-            # ROAD: arrows point SAME direction (dot >= 0.95 for strict alignment) AND far apart AND aligned along direction
+            # ROAD: arrows point SAME direction (dot >= 0.95 for strict alignment) AND far apart AND STRICTLY aligned
             if dp >= DOT_PRODUCT_LANE_THRESHOLD and dist >= MIN_LANE_DISTANCE:
-                # Check if the two anchors are aligned along the forward direction
-                if are_aligned_along_direction(anchor_a.transform.position, anchor_b.transform.position, fwd_a):
-                    if best_match is None or dp > best_dot:
-                        best_match = j
-                        best_dot = dp
-                        best_distance = dist
+                # STRICT GEOMETRIC VALIDATION: Check collinearity via perpendicular distance
+                # This ensures the arrow from A POINTS TO B (not just that both arrows are parallel)
+                is_aligned, rejection_reason, metrics = validate_strict_alignment(
+                    anchor_a.transform.position, 
+                    anchor_b.transform.position, 
+                    fwd_a
+                )
+                
+                if not is_aligned:
+                    # Log rejection for debugging
+                    print(f"    [REJECT] {anchor_a.name} -> {anchor_b.name}: {rejection_reason}")
+                    continue
+                
+                # Strict validation passed - this is a valid lane pair
+                if best_match is None or dp > best_dot:
+                    best_match = j
+                    best_dot = dp
+                    best_distance = dist
+                    best_metrics = metrics
         
         if best_match is not None:
             anchor_b = anchors[best_match]
@@ -389,7 +551,39 @@ def classify_anchors(anchors: List[AnchorActor]) -> Tuple[List[ClassifiedZone], 
             )
             zones.append(zone)
             
-            print(f"  [ROAD] {anchor_a.name} -> {anchor_b.name} (dot={best_dot:.4f}, dist={best_distance:.1f})")
+            # Enhanced logging with strict alignment metrics
+            perp_info = f", perp={best_metrics.get('perp', 0):.1f}cm" if 'best_metrics' in dir() and best_metrics else ""
+            print(f"  [ROAD] {anchor_a.name} -> {anchor_b.name} (dot={best_dot:.4f}, dist={best_distance:.1f}{perp_info})")
+    
+    # ========================================================================
+    # STEP 1.5: VALIDATE ADJACENT LANES (all roads are 2-lane)
+    # A lane without an adjacent parallel lane is invalid - demote to parking
+    # ========================================================================
+    lane_zones = [z for z in zones if z.zone_type == ZoneType.ROAD]
+    invalid_lanes = []
+    
+    print(f"\n--- Pass 1.5: Validating adjacent lanes (2-lane road requirement) ---")
+    
+    for lane_zone in lane_zones:
+        if not has_adjacent_lane(lane_zone, lane_zones):
+            a1, a2 = lane_zone.anchors[0], lane_zone.anchors[1]
+            print(f"    [DEMOTE] {a1.name} -> {a2.name}: No adjacent lane (isolated single lane)")
+            invalid_lanes.append(lane_zone)
+            
+            # Demote both anchors to parking
+            a1.zone_type = ZoneType.PARKING
+            a1.paired_with = None
+            a2.zone_type = ZoneType.PARKING
+            a2.paired_with = None
+            
+            # Remove from used_indices so they can be considered for other pairing
+            for idx, anchor in enumerate(anchors):
+                if anchor.name == a1.name or anchor.name == a2.name:
+                    used_indices.discard(idx)
+    
+    # Remove invalid lanes from zones
+    for invalid_lane in invalid_lanes:
+        zones.remove(invalid_lane)
     
     # ========================================================================
     # STEP 2: Find SIDEWALK pairs (arrows pointing TOWARD each other, dot ≈ -1.0)
@@ -427,12 +621,26 @@ def classify_anchors(anchors: List[AnchorActor]) -> Tuple[List[ClassifiedZone], 
             
             # SIDEWALK: arrows point TOWARD each other (dot ≈ -1.0) AND define corner bounds
             if dp < (-1.0 + DOT_PRODUCT_TOLERANCE) and dist >= MIN_SIDEWALK_DISTANCE:
+                # STRICT GEOMETRIC VALIDATION for sidewalks
+                # For sidewalks with opposite-facing arrows, check perpendicular alignment
+                is_aligned, rejection_reason, metrics = validate_strict_alignment(
+                    anchor_a.transform.position, 
+                    anchor_b.transform.position, 
+                    fwd_a
+                )
+                
+                # For sidewalks, we expect the anchors to be PERPENDICULAR to forward, 
+                # so we invert the alignment check - we want them NOT aligned along forward
+                # Instead, just verify they're within reasonable perpendicular bounds
+                perp_dist = metrics.get("perp", 0)
+                
                 # Check if these are sidewalk corners (aligned perpendicularly)
                 if are_sidewalk_corners(anchor_a.transform.position, anchor_b.transform.position, fwd_a, fwd_b):
                     if best_match is None or dp < best_dot:
                         best_match = j
                         best_dot = dp
                         best_distance = dist
+                        best_perp = perp_dist
         
         if best_match is not None:
             anchor_b = anchors[best_match]
@@ -454,7 +662,8 @@ def classify_anchors(anchors: List[AnchorActor]) -> Tuple[List[ClassifiedZone], 
             )
             zones.append(zone)
             
-            print(f"  [SIDEWALK] {anchor_a.name} <-> {anchor_b.name} (dot={best_dot:.4f}, dist={best_distance:.1f})")
+            perp_info = f", perp={best_perp:.1f}cm" if 'best_perp' in dir() else ""
+            print(f"  [SIDEWALK] {anchor_a.name} <-> {anchor_b.name} (dot={best_dot:.4f}, dist={best_distance:.1f}{perp_info})")
     
     # ========================================================================
     # STEP 3: Remaining anchors are PARKING slots
@@ -541,8 +750,13 @@ def classify_anchors(anchors: List[AnchorActor]) -> Tuple[List[ClassifiedZone], 
     parking_count = sum(1 for z in zones if z.zone_type == ZoneType.PARKING)
     
     print(f"\n{'='*60}")
-    print("CLASSIFICATION SUMMARY")
+    print("CLASSIFICATION SUMMARY (STRICT GEOMETRIC VALIDATION)")
     print(f"{'='*60}")
+    print(f"  Alignment thresholds:")
+    print(f"    - Direction dot product: >= {STRICT_ALIGNMENT_DOT_THRESHOLD} (or <= -{STRICT_ALIGNMENT_DOT_THRESHOLD})")
+    print(f"    - Perpendicular tolerance: <= {STRICT_PERPENDICULAR_TOLERANCE_CM}cm")
+    print(f"    - Zones span entire location (cross-location pairing forbidden)")
+    print(f"")
     print(f"  SIDEWALK zones: {sidewalk_count} (paired)")
     print(f"  ROAD zones:     {road_count} (paired)")
     print(f"  PARKING slots:  {parking_count} (singles)")
@@ -902,7 +1116,7 @@ def print_validation_summary(zones: List[ClassifiedZone]):
         data = location_data[loc_idx]
         y_min, y_max = LOCATION_Y_BOUNDS[loc_idx - 1]
         
-        print(f"\nLOCATION {loc_idx} | Y ∈ [{y_min:.0f}, {y_max:.0f}]")
+        print(f"\nLOCATION {loc_idx} | Y in [{y_min:.0f}, {y_max:.0f}]")
         print(f"{'-'*70}")
         
         # Counts

@@ -18,7 +18,7 @@ spawner = VehicleSpawnController(
     host="127.0.0.1",
     port=30010,
     level_path="/Game/VantageCV/AutomobileV2",
-    anchor_config_path="configs/levels/automobileV2_anchors.yaml"
+    anchor_config_path="configs/levels/automobileV2_anchors_detected.yaml"
 )
 
 print("\n" + "=" * 60)
