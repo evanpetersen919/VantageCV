@@ -347,6 +347,8 @@ class VehicleSpawnController:
                     'id': lane.get('id', ''),
                     'start': lane['start_anchor'],
                     'end': lane['end_anchor'],
+                    'start_anchor': lane['start_anchor'],  # Keep new format too
+                    'end_anchor': lane['end_anchor'],
                     'width_cm': lane.get('width_cm', 350.0)
                 }
                 # Preserve YAML positions if available (for aligned coordinates)
@@ -354,6 +356,9 @@ class VehicleSpawnController:
                     normalized_lane['start_position'] = lane['start_position']
                 if 'end_position' in lane:
                     normalized_lane['end_position'] = lane['end_position']
+                # Preserve vehicle_yaw if available (pre-computed rotation)
+                if 'vehicle_yaw' in lane:
+                    normalized_lane['vehicle_yaw'] = lane['vehicle_yaw']
                 normalized.append(normalized_lane)
             else:
                 # Old format - pass through
@@ -437,10 +442,12 @@ class VehicleSpawnController:
             List with single lane segment
         """
         return [{
+            'id': lane.get('id'),
             'start_anchor': lane.get('start_anchor'),
             'end_anchor': lane.get('end_anchor'),
             'start_position': lane.get('start_position'),
-            'end_position': lane.get('end_position')
+            'end_position': lane.get('end_position'),
+            'vehicle_yaw': lane.get('vehicle_yaw')  # Include pre-computed rotation
         }]
     
     def _compute_lane_transform(self, lane: Dict, t: float) -> Optional[Dict]:
@@ -458,16 +465,6 @@ class VehicleSpawnController:
         if 'start_position' in lane and 'end_position' in lane:
             start_loc = {"X": lane['start_position'][0], "Y": lane['start_position'][1], "Z": lane['start_position'][2]}
             end_loc = {"X": lane['end_position'][0], "Y": lane['end_position'][1], "Z": lane['end_position'][2]}
-            # Try to get rotation from UE5, use default if fails
-            start_anchor = lane.get("start", lane.get("start_anchor"))
-            start_transform = self._get_anchor_transform(start_anchor)
-            if not start_transform:
-                # Compute rotation from lane direction
-                dx = end_loc["X"] - start_loc["X"]
-                dy = end_loc["Y"] - start_loc["Y"]
-                import math
-                yaw = math.degrees(math.atan2(dy, dx))
-                start_transform = {"rotation": {"Pitch": 0, "Yaw": yaw, "Roll": 0}}
         else:
             start_anchor = lane.get("start", lane.get("start_anchor"))
             end_anchor = lane.get("end", lane.get("end_anchor"))
@@ -487,8 +484,28 @@ class VehicleSpawnController:
         y = start_loc["Y"] + t * dy
         z = start_loc["Z"] + t * (end_loc["Z"] - start_loc["Z"])
         
-        # Use Start anchor's red arrow rotation for vehicle facing direction
-        yaw = start_transform["rotation"]["Yaw"]
+        # Use vehicle_yaw from YAML if available (pre-computed correct direction)
+        yaml_yaw = lane.get('vehicle_yaw')
+        if yaml_yaw is not None:
+            yaw = yaml_yaw
+            lane_id = lane.get('id', 'unknown')
+            print(f"            [ROTATION] {lane_id}: Using YAML vehicle_yaw={yaw:.1f}°")
+        else:
+            # Fallback: compute rotation from arrow direction vs lane direction
+            import math
+            start_anchor = lane.get("start", lane.get("start_anchor"))
+            start_transform = self._get_anchor_transform(start_anchor)
+            if start_transform:
+                start_yaw = start_transform["rotation"]["Yaw"]
+                lane_yaw = math.degrees(math.atan2(dy, dx))
+                angle_diff = (start_yaw - lane_yaw + 180) % 360 - 180
+                if abs(angle_diff) > 90:
+                    yaw = start_yaw + 180
+                else:
+                    yaw = start_yaw
+            else:
+                # Last resort: use lane direction
+                yaw = math.degrees(math.atan2(dy, dx))
         
         return {
             "location": {"X": x, "Y": y, "Z": z},

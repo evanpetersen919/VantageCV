@@ -257,6 +257,7 @@ lanes:
     - 12505
     - 8845.0
     - 10
+    vehicle_yaw: 180.0
     dot_product: 1.0
   - id: lane_2
     start_anchor: StaticMeshActor_30
@@ -269,6 +270,7 @@ lanes:
     - 12505
     - 9395.0
     - 10
+    vehicle_yaw: 0
     dot_product: 1.0
   - id: lane_3
     start_anchor: StaticMeshActor_37
@@ -281,6 +283,7 @@ lanes:
     - 13145.0
     - 6845
     - 15
+    vehicle_yaw: 90.0
     dot_product: 1.0
   - id: lane_4
     start_anchor: StaticMeshActor_38
@@ -293,6 +296,7 @@ lanes:
     - 13685.0
     - 6845
     - 15
+    vehicle_yaw: 270.0
     dot_product: 1.0
   - id: lane_5
     start_anchor: StaticMeshActor_83
@@ -305,6 +309,7 @@ lanes:
     - 9795.0
     - 24575.0
     - 20
+    vehicle_yaw: 180.0
     dot_product: 1.0
   - id: lane_6
     start_anchor: StaticMeshActor_84
@@ -317,6 +322,7 @@ lanes:
     - 9795.0
     - 24995.0
     - 20
+    vehicle_yaw: 0.0
     dot_product: 1.0
   - id: lane_7
     start_anchor: StaticMeshActor_113
@@ -329,6 +335,7 @@ lanes:
     - 15215.0
     - 44315.0
     - 60
+    vehicle_yaw: 0.0
     dot_product: 1.0
   - id: lane_8
     start_anchor: StaticMeshActor_119
@@ -341,6 +348,7 @@ lanes:
     - 10795.0
     - 43725.0
     - 60
+    vehicle_yaw: 180.0
     dot_product: 1.0
   - id: lane_9
     start_anchor: StaticMeshActor_115
@@ -353,6 +361,7 @@ lanes:
     - 18405.0
     - 70565.0
     - 120
+    vehicle_yaw: 180
     dot_product: 1.0
   - id: lane_10
     start_anchor: StaticMeshActor_128
@@ -365,6 +374,7 @@ lanes:
     - 15125.0
     - 71095.0
     - 120
+    vehicle_yaw: 360.0
     dot_product: 1.0
   - id: lane_11
     start_anchor: StaticMeshActor_180
@@ -377,6 +387,7 @@ lanes:
     - 8285.0
     - 83495.0
     - 50
+    vehicle_yaw: 90.0
     dot_product: 1.0
   - id: lane_12
     start_anchor: StaticMeshActor_184
@@ -389,6 +400,7 @@ lanes:
     - 8945.0
     - 88315.0
     - 50
+    vehicle_yaw: 270.0
     dot_product: 1.0
   - id: lane_13
     start_anchor: StaticMeshActor_190
@@ -401,6 +413,7 @@ lanes:
     - 13605.0
     - 115065.0
     - 280
+    vehicle_yaw: 90.0
     dot_product: 1.0
   - id: lane_14
     start_anchor: StaticMeshActor_192
@@ -413,6 +426,7 @@ lanes:
     - 13985.0
     - 108885.0
     - 280
+    vehicle_yaw: 270.0
     dot_product: 1.0
   - id: lane_15
     start_anchor: StaticMeshActor_198
@@ -425,6 +439,7 @@ lanes:
     - 14175.0
     - 129635.0
     - 60
+    vehicle_yaw: 180.0
     dot_product: 1.0
   - id: lane_16
     start_anchor: StaticMeshActor_204
@@ -437,6 +452,7 @@ lanes:
     - 17125.0
     - 130175.0
     - 60
+    vehicle_yaw: 360.0
     dot_product: 1.0
   - id: lane_17
     start_anchor: StaticMeshActor_220
@@ -449,6 +465,7 @@ lanes:
     - 18255.0
     - 130735.0
     - 60
+    vehicle_yaw: 270.0
     dot_product: 1.0
   - id: lane_18
     start_anchor: StaticMeshActor_224
@@ -461,6 +478,7 @@ lanes:
     - 17585.0
     - 130735.0
     - 60
+    vehicle_yaw: 90.0
     dot_product: 1.0
 sidewalks:
   count: 10

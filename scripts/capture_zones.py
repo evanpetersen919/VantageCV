@@ -979,12 +979,17 @@ def generate_classified_manifest(
                 end_pos[0] = avg_x
                 print(f"  [ALIGN] {anchor_a.name}↔{anchor_b.name}: X aligned to {avg_x:.2f} (diff was {x_diff:.2f})")
             
+            # Vehicle_yaw: vehicles face the arrow direction (start anchor's yaw)
+            # The arrow directly indicates traffic flow direction - no transformation needed
+            vehicle_yaw = anchor_a.transform.rotation[1] % 360
+            
             lanes.append({
                 "id": f"lane_{len(lanes) + 1}",
                 "start_anchor": anchor_a.name,
                 "end_anchor": anchor_b.name,
                 "start_position": [round(p, 2) for p in start_pos],
                 "end_position": [round(p, 2) for p in end_pos],
+                "vehicle_yaw": round(vehicle_yaw, 2),
                 "dot_product": round(zone.dot_product, 4)
             })
         
