@@ -428,29 +428,26 @@ class VehicleSpawnController:
             "rotation": rot.get("ReturnValue", {})
         }
     
-    def _compute_lane_transform(self, lane: Dict, t: float, lateral_offset: float = 0) -> Optional[Dict]:
+    def _compute_lane_transform(self, lane: Dict, t: float) -> Optional[Dict]:
         """
-        Compute position and rotation along a lane.
+        Compute position and rotation along a lane centerline.
         
         Args:
             lane: Lane definition with start/end anchors
             t: Position along lane (0.0 = start, 1.0 = end)
-            lateral_offset: Perpendicular offset from lane center (cm)
         
         Returns:
-            Dict with location and rotation facing lane direction
+            Dict with location, rotation, start_loc, end_loc for validation
         """
         # Use YAML positions if available (aligned coordinates), otherwise query UE5
         if 'start_position' in lane and 'end_position' in lane:
             start_loc = {"X": lane['start_position'][0], "Y": lane['start_position'][1], "Z": lane['start_position'][2]}
             end_loc = {"X": lane['end_position'][0], "Y": lane['end_position'][1], "Z": lane['end_position'][2]}
-            logger.debug(f"[LANE YAML] Using YAML positions: start_Y={start_loc['Y']}, end_Y={end_loc['Y']}")
             # Still need rotation from UE5
             start_transform = self._get_anchor_transform(lane["start"])
             if not start_transform:
                 return None
         else:
-            logger.debug(f"[LANE UE5] Falling back to UE5 positions (no start_position/end_position in lane)")
             start_transform = self._get_anchor_transform(lane["start"])
             end_transform = self._get_anchor_transform(lane["end"])
             if not start_transform or not end_transform:
@@ -462,7 +459,7 @@ class VehicleSpawnController:
         dx = end_loc["X"] - start_loc["X"]
         dy = end_loc["Y"] - start_loc["Y"]
         
-        # Interpolate position
+        # Interpolate position EXACTLY on centerline (no lateral offset)
         x = start_loc["X"] + t * dx
         y = start_loc["Y"] + t * dy
         z = start_loc["Z"] + t * (end_loc["Z"] - start_loc["Z"])
@@ -470,18 +467,11 @@ class VehicleSpawnController:
         # Use Start anchor's red arrow rotation for vehicle facing direction
         yaw = start_transform["rotation"]["Yaw"]
         
-        # Apply lateral offset PERPENDICULAR to lane direction (not anchor rotation)
-        lane_length = math.sqrt(dx*dx + dy*dy)
-        if lane_length > 0 and lateral_offset != 0:
-            # Perpendicular direction (rotate lane vector 90 degrees)
-            perp_x = -dy / lane_length
-            perp_y = dx / lane_length
-            x += lateral_offset * perp_x
-            y += lateral_offset * perp_y
-        
         return {
             "location": {"X": x, "Y": y, "Z": z},
-            "rotation": {"Pitch": 0, "Yaw": yaw, "Roll": 0}
+            "rotation": {"Pitch": 0, "Yaw": yaw, "Roll": 0},
+            "start_loc": start_loc,
+            "end_loc": end_loc
         }
     
     # ========================================================================
@@ -662,10 +652,8 @@ class VehicleSpawnController:
         
         # Lane config
         lane_config = self.anchor_config.get("lanes", {})
-        # STRICT CENTERLINE: No lateral offset allowed - vehicles must spawn on centerline
-        # Maximum tolerance for validation (reject if exceeded)
-        MAX_CENTERLINE_TOLERANCE_CM = 10.0
-        lateral_jitter = 0.0  # DISABLED: lane_config.get("lateral_jitter_cm", 30.0)
+        # STRICT CENTERLINE: Vehicles spawn EXACTLY on centerline
+        MAX_CENTERLINE_TOLERANCE_CM = 5.0  # Maximum allowed deviation
         yaw_jitter = lane_config.get("yaw_jitter_degrees", 2.0)
         
         spawned = []
@@ -700,24 +688,54 @@ class VehicleSpawnController:
                 logger.warning(f"Could not find non-overlapping lane position after {max_attempts} attempts")
                 continue
             
-            lateral_offset = random.uniform(-lateral_jitter, lateral_jitter)
-            
-            transform = self._compute_lane_transform(lane, t, lateral_offset)
+            transform = self._compute_lane_transform(lane, t)
             if not transform:
                 logger.error(f"Could not compute lane transform for {lane['id']}")
                 continue
             
             location = transform["location"]
-
-            # VALIDATION: Check distance from centerline
-            centerline_distance = abs(lateral_offset)
+            start_loc = transform["start_loc"]
+            end_loc = transform["end_loc"]
+            
+            # VALIDATION: Verify spawn is on line segment
+            # Compute actual distance from line using point-to-line formula
+            dx = end_loc["X"] - start_loc["X"]
+            dy = end_loc["Y"] - start_loc["Y"]
+            line_length = math.sqrt(dx*dx + dy*dy)
+            
+            if line_length > 0:
+                # Vector from start to spawn point
+                vx = location["X"] - start_loc["X"]
+                vy = location["Y"] - start_loc["Y"]
+                
+                # Project onto line to get closest point
+                proj_t = (vx * dx + vy * dy) / (line_length * line_length)
+                closest_x = start_loc["X"] + proj_t * dx
+                closest_y = start_loc["Y"] + proj_t * dy
+                
+                # Distance from spawn to closest point on line
+                dist_x = location["X"] - closest_x
+                dist_y = location["Y"] - closest_y
+                centerline_distance = math.sqrt(dist_x*dist_x + dist_y*dist_y)
+            else:
+                centerline_distance = 0.0
+            
+            # Reject if too far from centerline
             if centerline_distance > MAX_CENTERLINE_TOLERANCE_CM:
-                logger.error(f"[LANE REJECT] {lane['id']}: centerline_distance={centerline_distance:.1f}cm > tolerance={MAX_CENTERLINE_TOLERANCE_CM}cm - SPAWN REJECTED")
-                print(f"  [LANE REJECT] {lane['id']}: distance from centerline {centerline_distance:.1f}cm exceeds {MAX_CENTERLINE_TOLERANCE_CM}cm tolerance")
+                logger.error(f"[LANE REJECT] {lane['id']}: distance={centerline_distance:.2f}cm > {MAX_CENTERLINE_TOLERANCE_CM}cm")
+                print(f"  [LANE REJECT] {lane['id']}: OFF CENTERLINE by {centerline_distance:.2f}cm - REJECTED")
                 continue
             
-            # Diagnostic logging for lane alignment
-            print(f"  [LANE OK] {lane['id']}: t={t:.2f}, centerline_dist={centerline_distance:.1f}cm (max={MAX_CENTERLINE_TOLERANCE_CM}cm), pos=({location['X']:.0f}, {location['Y']:.0f})")
+            # Get mesh names for logging
+            mesh_a = lane.get('start', lane.get('start_anchor', 'unknown'))
+            mesh_b = lane.get('end', lane.get('end_anchor', 'unknown'))
+            
+            # Enhanced diagnostic logging
+            print(f"  [LANE OK] {lane['id']}: mesh {mesh_a} -> {mesh_b}")
+            print(f"            start=({start_loc['X']:.0f}, {start_loc['Y']:.0f}, {start_loc['Z']:.0f})")
+            print(f"            end=({end_loc['X']:.0f}, {end_loc['Y']:.0f}, {end_loc['Z']:.0f})")
+            print(f"            spawn=({location['X']:.0f}, {location['Y']:.0f}, {location['Z']:.0f}) at t={t:.2f}")
+            print(f"            centerline_dist={centerline_distance:.2f}cm (max={MAX_CENTERLINE_TOLERANCE_CM}cm)")
             
             # Get vehicle's default rotation from config
             vehicle = available[vehicle_idx]
@@ -891,15 +909,18 @@ class VehicleSpawnController:
         
         random.shuffle(available)
         
-        # Sidewalk config - STRICT CENTERLINE: No lateral offset allowed
-        # Maximum tolerance for validation (reject if exceeded)
-        SIDEWALK_MAX_CENTERLINE_TOLERANCE_CM = 10.0
-        SIDEWALK_LATERAL_JITTER = 0.0  # DISABLED: ±50cm was too much, causes zone violations
+        # Sidewalk config - STRICT CENTERLINE: Bikes spawn EXACTLY on centerline
+        MAX_CENTERLINE_TOLERANCE_CM = 5.0  # Maximum allowed deviation
         
         # Collision check: maintain minimum distance between spawns
         MIN_SPACING = 150.0  # 150cm = 1.5m minimum distance along centerline
         spawned_positions = []  # Store t-values along centerline
         spawned = []
+        
+        # Get mesh names for logging
+        sidewalk_def = self.anchor_config.get("sidewalks", {}).get("definitions", [{}])[0]
+        mesh_a = sidewalk_def.get("anchor_1", "unknown")
+        mesh_b = sidewalk_def.get("anchor_2", "unknown")
         
         for i in range(min(count, len(available))):
             vehicle = available[i]
@@ -921,33 +942,45 @@ class VehicleSpawnController:
                         break
                 
                 if not collision:
-                    # Valid position found - interpolate along centerline
+                    # Valid position found - interpolate EXACTLY on centerline (no offset)
                     x = loc1["X"] + t * dx
                     y = loc1["Y"] + t * dy
                     z = loc1["Z"] + t * (loc2["Z"] - loc1["Z"])
                     
-                    # Apply small perpendicular offset (perpendicular to centerline)
-                    lateral_offset = random.uniform(-SIDEWALK_LATERAL_JITTER, SIDEWALK_LATERAL_JITTER)
+                    # VALIDATION: Verify position is on line segment
+                    # Compute actual distance from centerline
                     if centerline_length > 0:
-                        # Perpendicular direction (rotate 90 degrees)
-                        perp_x = -dy / centerline_length
-                        perp_y = dx / centerline_length
-                        x += lateral_offset * perp_x
-                        y += lateral_offset * perp_y
+                        # Vector from start to spawn point
+                        vx = x - loc1["X"]
+                        vy = y - loc1["Y"]
+                        
+                        # Project onto line to get closest point
+                        proj_t = (vx * dx + vy * dy) / (centerline_length * centerline_length)
+                        closest_x = loc1["X"] + proj_t * dx
+                        closest_y = loc1["Y"] + proj_t * dy
+                        
+                        # Distance from spawn to closest point on line
+                        dist_x = x - closest_x
+                        dist_y = y - closest_y
+                        centerline_distance = math.sqrt(dist_x*dist_x + dist_y*dist_y)
+                    else:
+                        centerline_distance = 0.0
                     
-                    yaw = random.uniform(0, 360)
-                    
-                    # VALIDATION: Check distance from centerline
-                    centerline_distance = abs(lateral_offset)
-                    if centerline_distance > SIDEWALK_MAX_CENTERLINE_TOLERANCE_CM:
-                        logger.error(f"[SIDEWALK REJECT] centerline_distance={centerline_distance:.1f}cm > tolerance={SIDEWALK_MAX_CENTERLINE_TOLERANCE_CM}cm - SPAWN REJECTED")
-                        print(f"  [SIDEWALK REJECT] distance from centerline {centerline_distance:.1f}cm exceeds {SIDEWALK_MAX_CENTERLINE_TOLERANCE_CM}cm tolerance")
+                    # Reject if too far from centerline
+                    if centerline_distance > MAX_CENTERLINE_TOLERANCE_CM:
+                        logger.error(f"[SIDEWALK REJECT] distance={centerline_distance:.2f}cm > {MAX_CENTERLINE_TOLERANCE_CM}cm")
+                        print(f"  [SIDEWALK REJECT] OFF CENTERLINE by {centerline_distance:.2f}cm - REJECTED")
                         continue
                     
+                    yaw = random.uniform(0, 360)
                     spawned_positions.append(t)
                     
-                    # Diagnostic logging for sidewalk - centerline verification
-                    print(f"  [SIDEWALK OK] t={t:.2f}, centerline_dist={centerline_distance:.1f}cm (max={SIDEWALK_MAX_CENTERLINE_TOLERANCE_CM}cm), pos=({x:.0f}, {y:.0f})")
+                    # Enhanced diagnostic logging
+                    print(f"  [SIDEWALK OK] mesh {mesh_a} <- {mesh_b} (bidirectional)")
+                    print(f"                start=({loc1['X']:.0f}, {loc1['Y']:.0f}, {loc1['Z']:.0f})")
+                    print(f"                end=({loc2['X']:.0f}, {loc2['Y']:.0f}, {loc2['Z']:.0f})")
+                    print(f"                spawn=({x:.0f}, {y:.0f}, {z:.0f}) at t={t:.2f}")
+                    print(f"                centerline_dist={centerline_distance:.2f}cm (max={MAX_CENTERLINE_TOLERANCE_CM}cm)")
                     
                     # Build location and rotation dicts
                     location = {"X": x, "Y": y, "Z": z}
