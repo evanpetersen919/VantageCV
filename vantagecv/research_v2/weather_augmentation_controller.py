@@ -216,6 +216,24 @@ class WeatherAugmentationController:
         # Current state
         self.current_weather_state: Optional[str] = None
     
+    def set_location(self, location: int) -> None:
+        """Set rain actors for a specific location.
+        
+        Args:
+            location: Location number (1, 2, or 3). Other values use defaults.
+        """
+        # Location-specific rain actor mapping
+        if location == 1:
+            self.rain_system = "NiagaraActor_6"        # Light rain
+            self.rain_system_heavy = "NiagaraActor_3"  # Heavy rain
+        elif location == 2:
+            self.rain_system = "NiagaraActor_0"        # Normal rain
+            self.rain_system_heavy = "NiagaraActor_1"  # Heavy rain
+        elif location == 3:
+            self.rain_system = "NiagaraActor_2"        # Normal rain
+            self.rain_system_heavy = "NiagaraActor_4"  # Heavy rain
+        # Other locations keep detected defaults
+
     # =========================================================================
     # REMOTE CONTROL HELPERS
     # =========================================================================

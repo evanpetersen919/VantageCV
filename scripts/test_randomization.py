@@ -721,6 +721,10 @@ def main():
     if not weather_controller.detect_weather_actors():
         print("WARNING: Weather augmentation may be limited - some weather actors not found")
     
+    # Set location-specific rain actors
+    if TEST_LOCATION:
+        weather_controller.set_location(TEST_LOCATION)
+    
     # Print detection summary
     print("\n" + "=" * 60)
     print("DETECTION SUMMARY")
