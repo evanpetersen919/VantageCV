@@ -349,7 +349,7 @@ class VehicleSpawnController:
                     'end': lane['end_anchor'],
                     'start_anchor': lane['start_anchor'],  # Keep new format too
                     'end_anchor': lane['end_anchor'],
-                    'width_cm': lane.get('width_cm', 350.0)
+                    'width_cm': lane.get('width_cm', 5000.0)  # Lane capacity in abstract units (5000 = 2 cars + 1 bus)
                 }
                 # Preserve YAML positions if available (for aligned coordinates)
                 if 'start_position' in lane:
@@ -493,6 +493,83 @@ class VehicleSpawnController:
         else:
             # Fallback: compute rotation from arrow direction vs lane direction
             import math
+            start_anchor = lane.get("start", lane.get("start_anchor"))
+            start_transform = self._get_anchor_transform(start_anchor)
+            if start_transform:
+                start_yaw = start_transform["rotation"]["Yaw"]
+                lane_yaw = math.degrees(math.atan2(dy, dx))
+                angle_diff = (start_yaw - lane_yaw + 180) % 360 - 180
+                if abs(angle_diff) > 90:
+                    yaw = start_yaw + 180
+                else:
+                    yaw = start_yaw
+            else:
+                # Last resort: use lane direction
+                yaw = math.degrees(math.atan2(dy, dx))
+        
+        return {
+            "location": {"X": x, "Y": y, "Z": z},
+            "rotation": {"Pitch": 0, "Yaw": yaw, "Roll": 0},
+            "start_loc": start_loc,
+            "end_loc": end_loc
+        }
+    
+    def _compute_lane_transform_with_offset(self, lane: Dict, t: float, lateral_offset: float = 0.0) -> Optional[Dict]:
+        """
+        Compute position and rotation along a lane with lateral offset.
+        
+        Args:
+            lane: Lane definition with start/end anchors (or segment)
+            t: Position along lane (0.0 = start, 1.0 = end)
+            lateral_offset: Perpendicular offset from centerline in cm (positive = right, negative = left)
+        
+        Returns:
+            Dict with location, rotation, start_loc, end_loc for validation
+        """
+        # Use YAML positions if available (aligned coordinates), otherwise query UE5
+        if 'start_position' in lane and 'end_position' in lane:
+            start_loc = {"X": lane['start_position'][0], "Y": lane['start_position'][1], "Z": lane['start_position'][2]}
+            end_loc = {"X": lane['end_position'][0], "Y": lane['end_position'][1], "Z": lane['end_position'][2]}
+        else:
+            start_anchor = lane.get("start", lane.get("start_anchor"))
+            end_anchor = lane.get("end", lane.get("end_anchor"))
+            start_transform = self._get_anchor_transform(start_anchor)
+            end_transform = self._get_anchor_transform(end_anchor)
+            if not start_transform or not end_transform:
+                return None
+            start_loc = start_transform["location"]
+            end_loc = end_transform["location"]
+        
+        # Calculate lane direction vector
+        dx = end_loc["X"] - start_loc["X"]
+        dy = end_loc["Y"] - start_loc["Y"]
+        lane_length = math.sqrt(dx*dx + dy*dy)
+        
+        # Interpolate position on centerline
+        x = start_loc["X"] + t * dx
+        y = start_loc["Y"] + t * dy
+        z = start_loc["Z"] + t * (end_loc["Z"] - start_loc["Z"])
+        
+        # Apply lateral offset (perpendicular to lane direction)
+        if lane_length > 0 and lateral_offset != 0:
+            # Normalize lane direction
+            dir_x = dx / lane_length
+            dir_y = dy / lane_length
+            # Perpendicular vector (90 degrees clockwise)
+            perp_x = dir_y
+            perp_y = -dir_x
+            # Apply offset
+            x += perp_x * lateral_offset
+            y += perp_y * lateral_offset
+        
+        # Use vehicle_yaw from YAML if available (pre-computed correct direction)
+        yaml_yaw = lane.get('vehicle_yaw')
+        if yaml_yaw is not None:
+            yaw = yaml_yaw
+            lane_id = lane.get('id', 'unknown')
+            print(f"            [ROTATION] {lane_id}: Using YAML vehicle_yaw={yaw:.1f}°")
+        else:
+            # Fallback: compute rotation from arrow direction vs lane direction
             start_anchor = lane.get("start", lane.get("start_anchor"))
             start_transform = self._get_anchor_transform(start_anchor)
             if start_transform:
@@ -692,28 +769,52 @@ class VehicleSpawnController:
         
         # Lane config
         lane_config = self.anchor_config.get("lanes", {})
-        # STRICT CENTERLINE: Vehicles spawn EXACTLY on centerline
-        MAX_CENTERLINE_TOLERANCE_CM = 5.0  # Maximum allowed deviation
+        # Allow spawn anywhere within lane width (not just centerline)
         yaw_jitter = lane_config.get("yaw_jitter_degrees", 2.0)
         
         spawned = []
         vehicle_idx = 0
         
-        # Track used lane positions to prevent overlap
-        # Each entry: (lane_id, t_value) - new vehicles must be MIN_SPACING apart
-        MIN_SPACING = 0.25  # Minimum t-distance between vehicles on same lane
-        used_positions = []  # List of (lane_id, t)
+        # Lane capacity based on width and vehicle "space value"
+        # Space values in UE units (centimeters)
+        SPACE_VALUE = {
+            "car": 1000,       # Car takes 1000 units
+            "truck": 1000,     # Truck takes 1000 units
+            "bus": 3000,       # Bus takes 3000 units
+            "motorcycle": 800, # Motorcycle takes less space
+            "bicycle": 600     # Bicycle takes less space
+        }
+        
+        # Track used space per lane: {lane_id: [(t_value, lateral_offset, space_value, category), ...]}
+        lane_occupancy = {}  # {lane_id: used_space_total}
+        lane_positions = {}  # {lane_id: [(t, lateral_offset, half_width, category), ...]} for overlap checks
         
         for i in range(count):
             if vehicle_idx >= len(available):
                 logger.warning("Not enough vehicles in pool")
                 break
             
+            # Get current vehicle info
+            vehicle = available[vehicle_idx]
+            vehicle_name = vehicle["name"]
+            category = vehicle["category"]
+            current_space = SPACE_VALUE.get(category, 1000)
+            
             # Try to find non-overlapping position
-            max_attempts = 10
+            max_attempts = 20
             for attempt in range(max_attempts):
                 # Pick random lane
                 lane = random.choice(lanes)
+                lane_id = lane["id"]
+                lane_capacity = lane.get('width_cm', 5000.0)  # Lane capacity in abstract units
+                
+                # Check if lane has capacity for this vehicle
+                current_occupancy = lane_occupancy.get(lane_id, 0)
+                if current_occupancy + current_space > lane_capacity:
+                    # Lane full, try another
+                    if attempt == max_attempts - 1:
+                        print(f"            [CAPACITY] {lane_id} full: {current_occupancy} + {current_space} > {lane_capacity}")
+                    continue
                 
                 # Discover mesh segments for this lane
                 segments = self._discover_lane_segments(lane)
@@ -723,16 +824,46 @@ class VehicleSpawnController:
                 # Pick random segment
                 segment = random.choice(segments)
                 
-                # Spawn ONLY in the very center of each segment to avoid mesh edge issues
-                # Use t=0.4-0.6 (center 20%) instead of 0.3-0.7 to stay well within mesh bounds
-                t = random.uniform(0.4, 0.6)  # Very conservative - center only
+                # Random position along lane (t value)
+                t = random.uniform(0.3, 0.7)  # Stay away from endpoints
                 
-                # Check for overlap with existing positions on same lane
+                # Random lateral offset within physical lane width (perpendicular to centerline)
+                # Read lane_width from scene config (in meters), convert to cm
+                scene_config = self.anchor_config.get("scene", {})
+                lane_width_meters = scene_config.get("lane_width", 4.0)  # Default 4m
+                physical_lane_width = lane_width_meters * 100.0  # Convert to cm
+                max_lateral = (physical_lane_width / 2.0) - 100.0  # Keep 100cm margin from edge
+                lateral_offset = random.uniform(-max_lateral, max_lateral) if max_lateral > 0 else 0.0
+                
+                # Vehicle half-width for overlap check (use physical width, not capacity)
+                # Approximate physical widths: car ~180cm, truck ~250cm, bus ~260cm
+                PHYSICAL_HALF_WIDTH = {
+                    "car": 90.0,
+                    "truck": 125.0,
+                    "bus": 130.0,
+                    "motorcycle": 50.0,
+                    "bicycle": 40.0
+                }
+                vehicle_half_width = PHYSICAL_HALF_WIDTH.get(category, 90.0)
+                
+                # Check for overlap with existing vehicles on same lane
                 overlap = False
-                for used_lane_id, used_t in used_positions:
-                    if used_lane_id == lane["id"] and abs(t - used_t) < MIN_SPACING:
-                        overlap = True
-                        break
+                if lane_id in lane_positions:
+                    for used_t, used_lateral, used_half_width, used_category in lane_positions[lane_id]:
+                        # Check longitudinal overlap (t-based, scaled by space)
+                        t_distance = abs(t - used_t)
+                        min_t_spacing = 0.12  # Minimum t-spacing
+                        
+                        # Check lateral overlap
+                        lateral_distance = abs(lateral_offset - used_lateral)
+                        min_lateral_spacing = vehicle_half_width + used_half_width
+                        
+                        # Overlap if both longitudinal AND lateral are too close
+                        if t_distance < min_t_spacing and lateral_distance < min_lateral_spacing:
+                            overlap = True
+                            if attempt == max_attempts - 1:
+                                print(f"            [OVERLAP] {category} would overlap {used_category} on {lane_id}")
+                            break
                 
                 if not overlap:
                     break
@@ -741,7 +872,7 @@ class VehicleSpawnController:
                 continue
             
             # Compute transform using the specific mesh segment
-            transform = self._compute_lane_transform(segment, t)
+            transform = self._compute_lane_transform_with_offset(segment, t, lateral_offset)
             if not transform:
                 logger.error(f"Could not compute lane transform for {lane['id']}")
                 continue
@@ -749,35 +880,6 @@ class VehicleSpawnController:
             location = transform["location"]
             start_loc = transform["start_loc"]
             end_loc = transform["end_loc"]
-            
-            # VALIDATION: Verify spawn is on line segment
-            # Compute actual distance from line using point-to-line formula
-            dx = end_loc["X"] - start_loc["X"]
-            dy = end_loc["Y"] - start_loc["Y"]
-            line_length = math.sqrt(dx*dx + dy*dy)
-            
-            if line_length > 0:
-                # Vector from start to spawn point
-                vx = location["X"] - start_loc["X"]
-                vy = location["Y"] - start_loc["Y"]
-                
-                # Project onto line to get closest point
-                proj_t = (vx * dx + vy * dy) / (line_length * line_length)
-                closest_x = start_loc["X"] + proj_t * dx
-                closest_y = start_loc["Y"] + proj_t * dy
-                
-                # Distance from spawn to closest point on line
-                dist_x = location["X"] - closest_x
-                dist_y = location["Y"] - closest_y
-                centerline_distance = math.sqrt(dist_x*dist_x + dist_y*dist_y)
-            else:
-                centerline_distance = 0.0
-            
-            # Reject if too far from centerline
-            if centerline_distance > MAX_CENTERLINE_TOLERANCE_CM:
-                logger.error(f"[LANE REJECT] {lane['id']}: distance={centerline_distance:.2f}cm > {MAX_CENTERLINE_TOLERANCE_CM}cm")
-                print(f"  [LANE REJECT] {lane['id']}: OFF CENTERLINE by {centerline_distance:.2f}cm - REJECTED")
-                continue
             
             # Get mesh names for logging (use segment, not full lane)
             mesh_a = segment.get('start_anchor', 'unknown')
@@ -787,16 +889,12 @@ class VehicleSpawnController:
             print(f"  [LANE OK] {lane['id']}: segment {mesh_a} -> {mesh_b}")
             print(f"            start=({start_loc['X']:.0f}, {start_loc['Y']:.0f}, {start_loc['Z']:.0f})")
             print(f"            end=({end_loc['X']:.0f}, {end_loc['Y']:.0f}, {end_loc['Z']:.0f})")
-            print(f"            spawn=({location['X']:.0f}, {location['Y']:.0f}, {location['Z']:.0f}) at t={t:.2f}")
-            print(f"            centerline_dist={centerline_distance:.2f}cm (max={MAX_CENTERLINE_TOLERANCE_CM}cm)")
+            print(f"            spawn=({location['X']:.0f}, {location['Y']:.0f}, {location['Z']:.0f}) at t={t:.2f}, lateral={lateral_offset:.0f}cm")
             
             # Log rotation details BEFORE computing final rotation
             lane_yaw = transform["rotation"]["Yaw"]
             
-            # Get vehicle's default rotation from config
-            vehicle = available[vehicle_idx]
-            vehicle_name = vehicle["name"]
-            category = vehicle["category"]
+            # Get vehicle's default rotation from config (vehicle already retrieved above)
             vehicle_default_yaw = vehicle.get("default_transform", {}).get("rotation", {}).get("Yaw", 0)
             
             # ADD lane direction to vehicle's default rotation
@@ -810,8 +908,11 @@ class VehicleSpawnController:
             # Log rotation composition
             print(f"            rotation: vehicle_default={vehicle_default_yaw:.1f}° + lane_dir={lane_yaw:.1f}° + jitter={yaw_jitter_amount:.1f}° = {rotation['Yaw']:.1f}°")
             
-            # Track this position
-            used_positions.append((lane["id"], t))
+            # Track lane occupancy and positions for overlap checks
+            lane_occupancy[lane_id] = lane_occupancy.get(lane_id, 0) + current_space
+            if lane_id not in lane_positions:
+                lane_positions[lane_id] = []
+            lane_positions[lane_id].append((t, lateral_offset, vehicle_half_width, category))
             
             vehicle_idx += 1
             
@@ -970,8 +1071,15 @@ class VehicleSpawnController:
         MAX_CENTERLINE_TOLERANCE_CM = 5.0  # Maximum allowed deviation
         
         # Collision check: maintain minimum distance between spawns
-        MIN_SPACING = 150.0  # 150cm = 1.5m minimum distance along centerline
-        spawned_positions = []  # Store t-values along centerline
+        BASE_SPACING_CM = 120.0  # Base spacing for regular vehicles (1.2m)
+        SPACING_MULTIPLIER = {
+            "bus": 2.0,        # Buses need 2x spacing
+            "truck": 1.2,      # Trucks need 1.2x spacing
+            "car": 1.0,        # Cars use base spacing
+            "motorcycle": 0.8, # Motorcycles can be closer
+            "bicycle": 0.8     # Bicycles can be closer
+        }
+        spawned_positions = []  # Store (t-value, category) tuples
         spawned = []
         
         # Get mesh names for logging
@@ -983,6 +1091,7 @@ class VehicleSpawnController:
             vehicle = available[i]
             vehicle_name = vehicle["name"]
             category = vehicle["category"]
+            current_spacing_mult = SPACING_MULTIPLIER.get(category, 1.0)
             
             # Try to find non-overlapping position along centerline
             max_attempts = 20
@@ -992,10 +1101,16 @@ class VehicleSpawnController:
                 
                 # Check collision with existing spawns
                 collision = False
-                for prev_t in spawned_positions:
+                for prev_t, prev_category in spawned_positions:
+                    # Calculate required spacing based on both vehicle sizes
+                    prev_spacing_mult = SPACING_MULTIPLIER.get(prev_category, 1.0)
+                    required_spacing = BASE_SPACING_CM * max(current_spacing_mult, prev_spacing_mult)
+                    
                     t_distance = abs(t - prev_t) * centerline_length
-                    if t_distance < MIN_SPACING:
+                    if t_distance < required_spacing:
                         collision = True
+                        if attempt == max_attempts - 1:  # Log only on final attempt
+                            print(f"                [OVERLAP] {category} would overlap {prev_category} on sidewalk (spacing={t_distance:.0f}cm < {required_spacing:.0f}cm)")
                         break
                 
                 if not collision:
@@ -1030,7 +1145,7 @@ class VehicleSpawnController:
                         continue
                     
                     yaw = random.uniform(0, 360)
-                    spawned_positions.append(t)
+                    spawned_positions.append((t, category))  # Track t-value and category for size-aware collision
                     
                     # Enhanced diagnostic logging
                     print(f"  [SIDEWALK OK] mesh {mesh_a} <- {mesh_b} (bidirectional)")
@@ -1066,8 +1181,9 @@ class VehicleSpawnController:
                     else:
                         logger.error(f"Failed to teleport {vehicle_name}")
             else:
-                logger.warning(f"Could not find non-colliding position for vehicle {i+1} after {max_attempts} attempts")
+                logger.warning(f"            [SKIP] Could not place {vehicle_name} on sidewalk after {max_attempts} attempts")
         
+        print(f"        [SPAWN] Sidewalk spawned {len(spawned)} vehicles on centerline (anchors: {mesh_a} → {mesh_b})")
         logger.info(f"Spawned {len(spawned)}/{count} vehicles on sidewalk")
         
         return SpawnResult(
