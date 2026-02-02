@@ -559,6 +559,9 @@ def spawn_vehicles_with_constraints(
                 max_buses  # But never more than number of lanes
             )
             
+            # Track bounds across multiple spawn calls for collision detection
+            lane_spawned_bounds = []
+            
             if bus_count > 0:
                 bus_result = spawner.spawn_lane(
                     seed=seed + 1000,
@@ -569,6 +572,9 @@ def spawn_vehicles_with_constraints(
                     stats.log_success(v.category, v.name, v.anchor_name)
                     all_spawned.append(v)
                 
+                # Collect bounds from spawned buses for next spawn call
+                lane_spawned_bounds = bus_result.spawned_bounds
+                
                 # Reduce lane_count for remaining vehicles
                 lane_count -= bus_count
             
@@ -576,13 +582,16 @@ def spawn_vehicles_with_constraints(
             lane_vehicle_types_remaining = [t for t in lane_vehicle_types if t != "bus"]
         else:
             lane_vehicle_types_remaining = lane_vehicle_types
+            lane_spawned_bounds = []
         
         # Spawn remaining lane vehicles (cars, trucks)
+        # Pass existing bounds so they don't spawn inside buses!
         if lane_count > 0 and lane_vehicle_types_remaining:
             other_result = spawner.spawn_lane(
                 seed=seed + 2000,
                 count=lane_count,
-                vehicle_types=lane_vehicle_types_remaining
+                vehicle_types=lane_vehicle_types_remaining,
+                existing_bounds=lane_spawned_bounds  # Pass bus bounds!
             )
             for v in other_result.spawned_vehicles:
                 stats.log_success(v.category, v.name, v.anchor_name)

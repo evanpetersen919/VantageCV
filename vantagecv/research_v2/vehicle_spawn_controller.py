@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 
+from .vehicle_spacing import VehicleSpacingChecker, VehicleBounds
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,6 +50,7 @@ class SpawnResult:
     success: bool
     spawned_vehicles: List[VehicleInstance] = field(default_factory=list)
     failure_reason: Optional[str] = None
+    spawned_bounds: List = field(default_factory=list)  # VehicleBounds for collision checking
 
 
 class VehicleSpawnController:
@@ -84,6 +87,11 @@ class VehicleSpawnController:
         
         # Track currently spawned vehicles
         self.spawned_vehicles: List[VehicleInstance] = []
+        
+        # Initialize spacing checker for collision prevention
+        self.spacing_checker = VehicleSpacingChecker(
+            host=host, port=port, level_path=level_path
+        )
         
         logger.info("VehicleSpawnController initialized")
         logger.info(f"  Level: {level_path}")
@@ -672,7 +680,8 @@ class VehicleSpawnController:
         )
     
     def spawn_lane(self, seed: int, count: int = 2,
-                   vehicle_types: List[str] = None) -> SpawnResult:
+                   vehicle_types: List[str] = None,
+                   existing_bounds: List[VehicleBounds] = None) -> SpawnResult:
         """
         Spawn vehicles in road lanes
         
@@ -680,6 +689,8 @@ class VehicleSpawnController:
             seed: Random seed for determinism
             count: Number of vehicles to spawn
             vehicle_types: List of vehicle categories to use (default: cars only)
+            existing_bounds: List of VehicleBounds from previously spawned vehicles
+                            (used to check collisions with already-spawned vehicles)
         """
         random.seed(seed)
         
@@ -721,9 +732,10 @@ class VehicleSpawnController:
             "bicycle": 600     # Bicycle takes less space
         }
         
-        # Track used space per lane: {lane_id: [(t_value, lateral_offset, space_value, category), ...]}
+        # Track used space per lane and spawned vehicles for collision checking
         lane_occupancy = {}  # {lane_id: used_space_total}
-        lane_positions = {}  # {lane_id: [(t, lateral_offset, half_width, category), ...]} for overlap checks
+        # Start with any existing bounds from previous spawn calls
+        spawned_bounds: List[VehicleBounds] = list(existing_bounds) if existing_bounds else []
         
         for i in range(count):
             if vehicle_idx >= len(available):
@@ -771,51 +783,46 @@ class VehicleSpawnController:
                 max_lateral = (physical_lane_width / 2.0) - 100.0  # Keep 100cm margin from edge
                 lateral_offset = random.uniform(-max_lateral, max_lateral) if max_lateral > 0 else 0.0
                 
-                # Vehicle half-width for overlap check (use physical width, not capacity)
-                # Approximate physical widths: car ~180cm, truck ~250cm, bus ~260cm
-                PHYSICAL_HALF_WIDTH = {
-                    "car": 90.0,
-                    "truck": 125.0,
-                    "bus": 130.0,
-                    "motorcycle": 50.0,
-                    "bicycle": 40.0
-                }
-                vehicle_half_width = PHYSICAL_HALF_WIDTH.get(category, 90.0)
+                # Compute transform using the specific mesh segment
+                transform = self._compute_lane_transform_with_offset(segment, t, lateral_offset)
+                if not transform:
+                    continue
                 
-                # Check for overlap with existing vehicles on same lane
-                overlap = False
-                if lane_id in lane_positions:
-                    for used_t, used_lateral, used_half_width, used_category in lane_positions[lane_id]:
-                        # Check longitudinal overlap (t-based, scaled by space)
-                        t_distance = abs(t - used_t)
-                        min_t_spacing = 0.12  # Minimum t-spacing
-                        
-                        # Check lateral overlap
-                        lateral_distance = abs(lateral_offset - used_lateral)
-                        min_lateral_spacing = vehicle_half_width + used_half_width
-                        
-                        # Overlap if both longitudinal AND lateral are too close
-                        if t_distance < min_t_spacing and lateral_distance < min_lateral_spacing:
-                            overlap = True
-                            if attempt == max_attempts - 1:
-                                print(f"            [OVERLAP] {category} would overlap {used_category} on {lane_id}")
-                            break
+                location = transform["location"]
+                start_loc = transform["start_loc"]
+                end_loc = transform["end_loc"]
                 
-                if not overlap:
-                    break
+                # Get vehicle's default rotation
+                vehicle_default_yaw = vehicle.get("default_transform", {}).get("rotation", {}).get("Yaw", 0)
+                lane_yaw = transform["rotation"]["Yaw"]
+                
+                # Compute final rotation with jitter
+                rotation = {"Pitch": 0, "Roll": 0}
+                rotation["Yaw"] = vehicle_default_yaw + lane_yaw
+                yaw_jitter_amount = random.uniform(-yaw_jitter, yaw_jitter)
+                rotation["Yaw"] += yaw_jitter_amount
+                
+                # NEW: Check collision using boundary mesh system
+                # Lanes are NOT parking spots, so collision checking is REQUIRED
+                can_place = self.spacing_checker.can_place_vehicle(
+                    vehicle_name=vehicle_name,
+                    category=category,
+                    location=location,
+                    rotation=rotation,
+                    existing_vehicles=spawned_bounds,
+                    in_parking_spot=False  # Lane spawns require collision checks
+                )
+                
+                if not can_place:
+                    if attempt == max_attempts - 1:
+                        print(f"            [COLLISION] {category} would collide on {lane_id}")
+                    continue
+                
+                # Valid position found - can spawn vehicle
+                break
             else:
                 logger.warning(f"Could not find non-overlapping lane position after {max_attempts} attempts")
                 continue
-            
-            # Compute transform using the specific mesh segment
-            transform = self._compute_lane_transform_with_offset(segment, t, lateral_offset)
-            if not transform:
-                logger.error(f"Could not compute lane transform for {lane['id']}")
-                continue
-            
-            location = transform["location"]
-            start_loc = transform["start_loc"]
-            end_loc = transform["end_loc"]
             
             # Get mesh names for logging (use segment, not full lane)
             mesh_a = segment.get('start_anchor', 'unknown')
@@ -826,29 +833,10 @@ class VehicleSpawnController:
             print(f"            start=({start_loc['X']:.0f}, {start_loc['Y']:.0f}, {start_loc['Z']:.0f})")
             print(f"            end=({end_loc['X']:.0f}, {end_loc['Y']:.0f}, {end_loc['Z']:.0f})")
             print(f"            spawn=({location['X']:.0f}, {location['Y']:.0f}, {location['Z']:.0f}) at t={t:.2f}, lateral={lateral_offset:.0f}cm")
-            
-            # Log rotation details BEFORE computing final rotation
-            lane_yaw = transform["rotation"]["Yaw"]
-            
-            # Get vehicle's default rotation from config (vehicle already retrieved above)
-            vehicle_default_yaw = vehicle.get("default_transform", {}).get("rotation", {}).get("Yaw", 0)
-            
-            # ADD lane direction to vehicle's default rotation
-            rotation = {"Pitch": 0, "Roll": 0}
-            rotation["Yaw"] = vehicle_default_yaw + lane_yaw
-            
-            # Add yaw jitter
-            yaw_jitter_amount = random.uniform(-yaw_jitter, yaw_jitter)
-            rotation["Yaw"] += yaw_jitter_amount
-            
-            # Log rotation composition
             print(f"            rotation: vehicle_default={vehicle_default_yaw:.1f}° + lane_dir={lane_yaw:.1f}° + jitter={yaw_jitter_amount:.1f}° = {rotation['Yaw']:.1f}°")
             
-            # Track lane occupancy and positions for overlap checks
+            # Track lane occupancy
             lane_occupancy[lane_id] = lane_occupancy.get(lane_id, 0) + current_space
-            if lane_id not in lane_positions:
-                lane_positions[lane_id] = []
-            lane_positions[lane_id].append((t, lateral_offset, vehicle_half_width, category))
             
             vehicle_idx += 1
             
@@ -861,6 +849,18 @@ class VehicleSpawnController:
             if not self._set_actor_hidden(vehicle_name, False):
                 logger.error(f"Failed to unhide {vehicle_name}")
                 continue
+            
+            # Get vehicle bounds from spacing checker for future collision checks
+            vehicle_bounds = self.spacing_checker.get_vehicle_bounds(
+                vehicle_name=vehicle_name,
+                category=category,
+                location=location,
+                rotation=rotation,
+                in_parking_spot=False
+            )
+            
+            if vehicle_bounds:
+                spawned_bounds.append(vehicle_bounds)
             
             instance = VehicleInstance(
                 name=vehicle_name,
@@ -879,7 +879,8 @@ class VehicleSpawnController:
         
         return SpawnResult(
             success=len(spawned) > 0,
-            spawned_vehicles=spawned
+            spawned_vehicles=spawned,
+            spawned_bounds=spawned_bounds
         )
     
     def spawn(self, seed: int, count: int = 5,
