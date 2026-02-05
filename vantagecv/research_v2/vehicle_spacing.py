@@ -666,10 +666,3 @@ class VehicleSpacingChecker:
         """Project corners onto axis and return min/max values."""
         projections = [c[0] * axis[0] + c[1] * axis[1] for c in corners]
         return min(projections), max(projections)
-
-
-# Convenience functions for use in test scripts
-def create_spacing_checker(host: str = "127.0.0.1", port: int = 30010,
-                           level_path: str = "/Game/automobileV2.automobileV2") -> VehicleSpacingChecker:
-    """Create a vehicle spacing checker instance."""
-    return VehicleSpacingChecker(host=host, port=port, level_path=level_path)
