@@ -433,20 +433,33 @@ def filter_anchors_by_location(anchors: Dict[str, List], location: int) -> Dict[
     y_min, y_max = LOCATION_BOUNDARIES[location]
     filtered = {}
     
+    total_before = 0
+    total_after = 0
+    
     for anchor_type, anchor_list in anchors.items():
         filtered[anchor_type] = []
+        total_before += len(anchor_list)
+        
         for anchor in anchor_list:
-            # Extract Y position from anchor
-            if hasattr(anchor, 'position'):
+            # Extract Y position from anchor (AnchorInfo has location dict)
+            if hasattr(anchor, 'location'):
+                y_pos = anchor.location.get('Y', 0)
+            elif isinstance(anchor, dict) and 'location' in anchor:
+                y_pos = anchor['location'].get('Y', 0)
+            elif hasattr(anchor, 'position'):
                 y_pos = anchor.position[1]
             elif isinstance(anchor, dict) and 'position' in anchor:
                 y_pos = anchor['position'][1]
             else:
+                print(f"WARNING: Could not extract position from anchor: {anchor}")
                 continue
             
             # Check if in location bounds
             if y_min <= y_pos < y_max:
                 filtered[anchor_type].append(anchor)
+                total_after += 1
+    
+    print(f"  Prop anchors filtered: {total_before} total → {total_after} in location {location} (Y ∈ [{y_min}, {y_max}))")
     
     return filtered
 
@@ -716,6 +729,10 @@ def main():
         original_anchors = {k: len(v) for k, v in prop_controller.detected_anchors.items()}
         prop_controller.detected_anchors = filter_anchors_by_location(prop_controller.detected_anchors, TEST_LOCATION)
         filtered_anchors = {k: len(v) for k, v in prop_controller.detected_anchors.items()}
+        
+        # SET STRICT LOCATION BOUNDARIES in prop controller
+        y_min, y_max = LOCATION_BOUNDARIES[TEST_LOCATION]
+        prop_controller.set_location_boundaries(y_min, y_max)
         
         print(f"  Vehicle anchors: parking {original_parking}→{filtered_parking}, lanes {original_lanes}→{filtered_lanes}, sidewalk {original_sidewalk}→{filtered_sidewalk}")
         print(f"  Prop anchors filtered: {sum(original_anchors.values())} → {sum(filtered_anchors.values())}")

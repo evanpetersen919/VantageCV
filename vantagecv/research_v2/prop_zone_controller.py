@@ -141,6 +141,11 @@ class PropZoneController:
         self.session = requests.Session()
         self.session.headers.update({"Content-Type": "application/json"})
         
+        # Location boundaries (Y-coordinate range) for strict location filtering
+        # Set via set_location_boundaries() to restrict spawning to specific location
+        self.location_y_min: Optional[float] = None
+        self.location_y_max: Optional[float] = None
+        
         # Cached data
         self.detected_anchors: Dict[str, List[AnchorInfo]] = {
             "barrier": [],
@@ -243,6 +248,127 @@ class PropZoneController:
         except Exception as e:
             logger.error(f"Set property error: {e}")
             return False
+    
+    # =========================================================================
+    # VALIDATION METHODS (STRICT RULES)
+    # =========================================================================
+    
+    def set_location_boundaries(self, y_min: float, y_max: float):
+        """
+        Set strict Y-coordinate boundaries for prop spawning.
+        
+        STRICT RULE: When set, props can ONLY spawn within these Y boundaries.
+        This prevents props from spawning at wrong locations in multi-location levels.
+        
+        Args:
+            y_min: Minimum Y coordinate (inclusive)
+            y_max: Maximum Y coordinate (exclusive)
+        """
+        self.location_y_min = y_min
+        self.location_y_max = y_max
+        logger.info(f"Location boundaries set: Y ∈ [{y_min}, {y_max})")
+    
+    def clear_location_boundaries(self):
+        """Clear location boundaries to allow spawning anywhere."""
+        self.location_y_min = None
+        self.location_y_max = None
+        logger.info("Location boundaries cleared - spawning allowed anywhere")
+    
+    def _validate_anchor_location(self, anchor: AnchorInfo) -> bool:
+        """
+        Validate that anchor location is within reasonable scene bounds.
+        
+        STRICT RULE: Anchors must be within the playable scene area.
+        Props spawning outside this area indicate a configuration error.
+        
+        If location boundaries are set (via set_location_boundaries), anchors
+        must also be within those stricter boundaries.
+        """
+        loc = anchor.location
+        
+        # STRICT LOCATION BOUNDARY CHECK (if set)
+        if self.location_y_min is not None and self.location_y_max is not None:
+            y_pos = loc["Y"]
+            if not (self.location_y_min <= y_pos < self.location_y_max):
+                logger.error(f"[VALIDATION FAILED] {anchor.name} Y={y_pos:.1f} outside location bounds "
+                           f"[{self.location_y_min}, {self.location_y_max})")
+                return False
+        
+        # Define reasonable scene bounds (adjust based on your level)
+        # These bounds should encompass the road/sidewalk areas
+        MIN_X, MAX_X = -10000, 20000  # 30km range in X
+        MIN_Y, MAX_Y = -1000, 150000   # 151km range in Y (main road direction)
+        MIN_Z, MAX_Z = -1000, 2000     # Reasonable Z range for ground-level props
+        
+        if not (MIN_X <= loc["X"] <= MAX_X):
+            logger.error(f"[VALIDATION FAILED] {anchor.name} X={loc['X']:.1f} outside bounds [{MIN_X}, {MAX_X}]")
+            return False
+        
+        if not (MIN_Y <= loc["Y"] <= MAX_Y):
+            logger.error(f"[VALIDATION FAILED] {anchor.name} Y={loc['Y']:.1f} outside bounds [{MIN_Y}, {MAX_Y}]")
+            return False
+        
+        if not (MIN_Z <= loc["Z"] <= MAX_Z):
+            logger.error(f"[VALIDATION FAILED] {anchor.name} Z={loc['Z']:.1f} outside bounds [{MIN_Z}, {MAX_Z}]")
+            return False
+        
+        return True
+    
+    def _verify_actor_location(self, actor_name: str, expected_location: Dict[str, float], 
+                                tolerance: float = 10.0) -> bool:
+        """
+        Verify that an actor is at the expected location after teleport.
+        
+        STRICT RULE: After teleporting, actor MUST be within tolerance of target location.
+        If verification fails, the prop is NOT at the correct spawn point.
+        
+        Args:
+            actor_name: Name of the actor to verify
+            expected_location: Expected location {"X": ..., "Y": ..., "Z": ...}
+            tolerance: Maximum allowed distance from expected location (cm)
+        
+        Returns:
+            True if actor is at correct location, False otherwise
+        """
+        actual_transform = self._get_actor_transform(actor_name)
+        
+        if not actual_transform:
+            logger.error(f"[VERIFICATION FAILED] Cannot get transform for {actor_name}")
+            return False
+        
+        actual_loc = actual_transform["location"]
+        
+        # Calculate distance from expected location
+        dx = actual_loc["X"] - expected_location["X"]
+        dy = actual_loc["Y"] - expected_location["Y"]
+        dz = actual_loc["Z"] - expected_location["Z"]
+        distance = math.sqrt(dx*dx + dy*dy + dz*dz)
+        
+        if distance > tolerance:
+            logger.error(f"[VERIFICATION FAILED] {actor_name} spawned at wrong location!")
+            logger.error(f"  Expected: ({expected_location['X']:.1f}, {expected_location['Y']:.1f}, {expected_location['Z']:.1f})")
+            logger.error(f"  Actual:   ({actual_loc['X']:.1f}, {actual_loc['Y']:.1f}, {actual_loc['Z']:.1f})")
+            logger.error(f"  Distance: {distance:.1f}cm (tolerance: {tolerance:.1f}cm)")
+            logger.error(f"  Delta:    dX={dx:.1f}cm, dY={dy:.1f}cm, dZ={dz:.1f}cm")
+            return False
+        
+        # Log successful verification at debug level
+        if distance > 1.0:  # Only log if there's some displacement
+            logger.debug(f"[VERIFICATION OK] {actor_name} - distance: {distance:.1f}cm")
+        
+        return True
+    
+    def _validate_prop_anchor_match(self, prop_type: str, anchor_type: str) -> bool:
+        """
+        Validate that prop type matches anchor type.
+        
+        STRICT RULE: Props must only spawn at their designated anchor types.
+        Example: Barriers only at barrier anchors, vegetation only at vegetation anchors.
+        """
+        if prop_type != anchor_type:
+            logger.error(f"[VALIDATION FAILED] Prop type '{prop_type}' does not match anchor type '{anchor_type}'")
+            return False
+        return True
     
     # =========================================================================
     # ANCHOR DETECTION
@@ -511,9 +637,17 @@ class PropZoneController:
         return result is not None
     
     def _teleport_actor(self, actor_name: str, location: Dict, rotation: Dict) -> bool:
-        """Teleport actor to new transform"""
+        """
+        Teleport actor to new transform with strict validation.
+        
+        STRICT RULE: Teleport must succeed AND actor must end up at correct location.
+        If verification fails, the spawn is considered FAILED.
+        """
+        import time
+        
         path = f"{self.level_path}:PersistentLevel.{actor_name}"
         
+        # Attempt teleport
         loc_result = self._call_remote(path, "K2_SetActorLocation", {
             "NewLocation": location,
             "bSweep": False,
@@ -525,7 +659,25 @@ class PropZoneController:
             "bTeleportPhysics": True
         })
         
-        return loc_result is not None and rot_result is not None
+        if not loc_result or not rot_result:
+            logger.error(f"[TELEPORT FAILED] {actor_name} - Remote call failed")
+            return False
+        
+        # STRICT VALIDATION: Verify actor is at correct location
+        # Give UE5 a moment to complete the teleport (physics, collision settling)
+        # Try verification multiple times with small delays
+        for attempt in range(3):
+            if attempt > 0:
+                time.sleep(0.05)  # 50ms delay between retry attempts
+            
+            if self._verify_actor_location(actor_name, location, tolerance=10.0):
+                if attempt > 0:
+                    logger.warning(f"[TELEPORT RETRY] {actor_name} - Verified on attempt {attempt + 1}")
+                return True
+        
+        # All verification attempts failed
+        logger.error(f"[TELEPORT FAILED] {actor_name} - Not at expected location after 3 verification attempts")
+        return False
     
     def _check_overlap(self, location: Dict, min_distance: float = 100.0) -> bool:
         """Check if location overlaps with any spawned prop"""
@@ -653,6 +805,16 @@ class PropZoneController:
         for pair_idx, pair in enumerate(spawning_pairs, 1):
             logger.info(f"  Spawning pair {pair_idx} ({len(pair)} anchor(s)):")
             for anchor in pair:
+                # STRICT VALIDATION: Verify anchor location is valid
+                if not self._validate_anchor_location(anchor):
+                    logger.error(f"    [{anchor.name}] REJECTED - Invalid anchor location")
+                    continue
+                
+                # STRICT VALIDATION: Verify prop-anchor type match
+                if not self._validate_prop_anchor_match("barrier", anchor.anchor_type):
+                    logger.error(f"    [{anchor.name}] REJECTED - Type mismatch")
+                    continue
+                
                 # Use green arrow (right direction) for facing
                 yaw = math.degrees(math.atan2(anchor.right_direction["Y"], 
                                                anchor.right_direction["X"]))
@@ -662,8 +824,6 @@ class PropZoneController:
                     "Yaw": yaw + 90,  # Rotate +90 degrees
                     "Roll": 0
                 }
-                
-                # Note: No overlap check for barriers - both in a pair must spawn together
                 
                 # Use next barrier from the chosen style (cycling if needed)
                 if barrier_index >= len(style_barriers):
@@ -675,9 +835,16 @@ class PropZoneController:
                 self.props_in_use.add(chosen_prop)
                 
                 logger.info(f"    [{anchor.name}] Using {chosen_prop}")
+                logger.info(f"        Target: ({anchor.location['X']:.1f}, {anchor.location['Y']:.1f}, {anchor.location['Z']:.1f})")
                 
-                # Teleport prop to anchor location
-                self._teleport_actor(chosen_prop, anchor.location, rotation)
+                # Teleport prop to anchor location with STRICT validation
+                teleport_success = self._teleport_actor(chosen_prop, anchor.location, rotation)
+                
+                if not teleport_success:
+                    logger.error(f"    [{anchor.name}] SPAWN FAILED - Teleport validation failed")
+                    self.props_in_use.discard(chosen_prop)  # Release prop back to pool
+                    continue
+                
                 self._set_actor_hidden(chosen_prop, False)
                 
                 prop = SpawnedProp(
@@ -735,6 +902,16 @@ class PropZoneController:
             
             logger.info(f"  {anchor.name}: SPAWN (roll={roll:.3f})")
             
+            # STRICT VALIDATION: Verify anchor location is valid
+            if not self._validate_anchor_location(anchor):
+                logger.error(f"    REJECTED: Invalid anchor location")
+                continue
+            
+            # STRICT VALIDATION: Verify prop-anchor type match
+            if not self._validate_prop_anchor_match("vegetation", anchor.anchor_type):
+                logger.error(f"    REJECTED: Type mismatch")
+                continue
+            
             # Check overlap
             if self._check_overlap(anchor.location, min_distance=200.0):
                 logger.warning(f"    REJECTED: Overlap detected")
@@ -762,8 +939,17 @@ class PropZoneController:
             # Random realistic scale
             scale_factor = random.uniform(0.8, 1.2)
             
-            # Teleport prop to anchor location
-            self._teleport_actor(chosen_prop, anchor.location, rotation)
+            logger.info(f"    Using {chosen_prop}")
+            logger.info(f"      Target: ({anchor.location['X']:.1f}, {anchor.location['Y']:.1f}, {anchor.location['Z']:.1f})")
+            
+            # Teleport prop to anchor location with STRICT validation
+            teleport_success = self._teleport_actor(chosen_prop, anchor.location, rotation)
+            
+            if not teleport_success:
+                logger.error(f"    SPAWN FAILED - Teleport validation failed")
+                self.props_in_use.discard(chosen_prop)  # Release prop back to pool
+                continue
+            
             self._set_actor_hidden(chosen_prop, False)
             self._call_remote(f"{self.level_path}:PersistentLevel.{chosen_prop}", 
                             "SetActorScale3D", 
@@ -826,6 +1012,16 @@ class PropZoneController:
             
             logger.info(f"  {anchor.name}: SPAWN (roll={roll:.3f})")
             
+            # STRICT VALIDATION: Verify anchor location is valid
+            if not self._validate_anchor_location(anchor):
+                logger.error(f"    REJECTED: Invalid anchor location")
+                continue
+            
+            # STRICT VALIDATION: Verify prop-anchor type match
+            if not self._validate_prop_anchor_match("sign", anchor.anchor_type):
+                logger.error(f"    REJECTED: Type mismatch")
+                continue
+            
             # Check overlap
             if self._check_overlap(anchor.location, min_distance=100.0):
                 logger.warning(f"    REJECTED: Overlap detected")
@@ -851,8 +1047,17 @@ class PropZoneController:
                 "Roll": 0
             }
             
-            # Teleport prop to anchor location
-            self._teleport_actor(chosen_prop, anchor.location, rotation)
+            logger.info(f"    Using {chosen_prop}")
+            logger.info(f"      Target: ({anchor.location['X']:.1f}, {anchor.location['Y']:.1f}, {anchor.location['Z']:.1f})")
+            
+            # Teleport prop to anchor location with STRICT validation
+            teleport_success = self._teleport_actor(chosen_prop, anchor.location, rotation)
+            
+            if not teleport_success:
+                logger.error(f"    SPAWN FAILED - Teleport validation failed")
+                self.props_in_use.discard(chosen_prop)  # Release prop back to pool
+                continue
+            
             self._set_actor_hidden(chosen_prop, False)
             
             # Fixed scale
@@ -949,6 +1154,22 @@ class PropZoneController:
                     "Z": anchor_a.location["Z"]
                 }
                 
+                # STRICT VALIDATION: Verify computed location is within scene bounds
+                # Create a temporary anchor info for validation
+                temp_anchor = AnchorInfo(
+                    name=f"computed_furniture_{set_idx}_{item_idx}",
+                    location=location,
+                    rotation=anchor_a.rotation,
+                    scale=anchor_a.scale,
+                    anchor_type="furniture",
+                    forward_direction=anchor_a.forward_direction,
+                    right_direction=anchor_a.right_direction
+                )
+                
+                if not self._validate_anchor_location(temp_anchor):
+                    logger.error(f"    Item {item_idx + 1}: REJECTED - Invalid computed location")
+                    continue
+                
                 # Check overlap
                 if self._check_overlap(location, min_distance=80.0):
                     logger.warning(f"    Item {item_idx + 1}: REJECTED (overlap)")
@@ -971,8 +1192,17 @@ class PropZoneController:
                     "Roll": 0
                 }
                 
-                # Teleport prop to location
-                self._teleport_actor(chosen_prop, location, rotation)
+                logger.info(f"    Item {item_idx + 1}: Using {chosen_prop}")
+                logger.info(f"        Target: ({location['X']:.1f}, {location['Y']:.1f}, {location['Z']:.1f})")
+                
+                # Teleport prop to location with STRICT validation
+                teleport_success = self._teleport_actor(chosen_prop, location, rotation)
+                
+                if not teleport_success:
+                    logger.error(f"    Item {item_idx + 1}: SPAWN FAILED - Teleport validation failed")
+                    self.props_in_use.discard(chosen_prop)  # Release prop back to pool
+                    continue
+                
                 self._set_actor_hidden(chosen_prop, False)
                 
                 scale = {"X": 1.0, "Y": 1.0, "Z": 1.0}
