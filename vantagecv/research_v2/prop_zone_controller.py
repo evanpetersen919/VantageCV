@@ -440,8 +440,8 @@ class PropZoneController:
         self.detected_anchors = {k: [] for k in ANCHOR_SCALES.keys()}
         
         # Get all actors in level - scan StaticMeshActor_* naming pattern
-        # We'll scan a reasonable range (increased to 200 to catch all anchors)
-        for i in range(1, 200):
+        # Scan range 1-500 to catch all anchors across all locations
+        for i in range(1, 500):
             actor_name = f"StaticMeshActor_{i}"
             transform = self._get_actor_transform(actor_name)
             
