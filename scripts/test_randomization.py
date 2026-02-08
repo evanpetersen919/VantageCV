@@ -449,7 +449,7 @@ def filter_anchors_by_location(anchors: Dict[str, List], location: int) -> Dict[
                 filtered[anchor_type].append(anchor)
                 total_after += 1
     
-    print(f"  Prop anchors filtered: {total_before} total \u2192 {total_after} in location {location} (Y \u2208 [{y_min}, {y_max}))")
+    print(f"  Prop anchors filtered: {total_before} total → {total_after} in location {location} (Y ∈ [{y_min}, {y_max}))")
     
     return filtered
 
@@ -719,6 +719,10 @@ def main():
         original_anchors = {k: len(v) for k, v in prop_controller.detected_anchors.items()}
         prop_controller.detected_anchors = filter_anchors_by_location(prop_controller.detected_anchors, TEST_LOCATION)
         filtered_anchors = {k: len(v) for k, v in prop_controller.detected_anchors.items()}
+        
+        # SET STRICT LOCATION BOUNDARIES in prop controller
+        y_min, y_max = LOCATION_BOUNDARIES[TEST_LOCATION]
+        prop_controller.set_location_boundaries(y_min, y_max)
         
         print(f"  Vehicle anchors: parking {original_parking}→{filtered_parking}, lanes {original_lanes}→{filtered_lanes}, sidewalk {original_sidewalk}→{filtered_sidewalk}")
         print(f"  Prop anchors filtered: {sum(original_anchors.values())} → {sum(filtered_anchors.values())}")
