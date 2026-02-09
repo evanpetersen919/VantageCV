@@ -184,13 +184,10 @@ class TestCleanup:
                     print("    [FAIL] Could not clear fog density")
                     success = False
             
-            # Disable rain
-            if self.weather_controller.rain_system:
-                rain_path = f"{self.weather_controller.level_path}:PersistentLevel.{self.weather_controller.rain_system}"
-                if self.weather_controller._call_remote(rain_path, "SetActorHiddenInGame", {"bNewHidden": True}):
-                    print("    [OK] Rain disabled")
-                else:
-                    print("    [FAIL] Could not disable rain")
+            # Disable ALL rain actors across all locations
+            print("  Disabling all rain actors...")
+            self.weather_controller._hide_all_rain_actors()
+            print("    [OK] All rain actors hidden")
             
             # Now set weather to clear (for other settings)
             result = self.weather_controller.set_weather(weather_state="clear")

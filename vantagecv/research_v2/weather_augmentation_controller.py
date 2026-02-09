@@ -216,8 +216,18 @@ class WeatherAugmentationController:
         # Current state
         self.current_weather_state: Optional[str] = None
     
+    # All known rain Niagara actors across all locations
+    ALL_RAIN_ACTORS = [
+        "NiagaraActor_0",  # Location 2 normal
+        "NiagaraActor_1",  # Location 2 heavy
+        "NiagaraActor_2",  # Location 3 normal
+        "NiagaraActor_3",  # Location 1 heavy
+        "NiagaraActor_4",  # Location 3 heavy
+        "NiagaraActor_6",  # Location 1 normal
+    ]
+
     def set_location(self, location: int) -> None:
-        """Set rain actors for a specific location.
+        """Set rain actors for a specific location and hide all others.
         
         Args:
             location: Location number (1, 2, or 3). Other values use defaults.
@@ -233,6 +243,15 @@ class WeatherAugmentationController:
             self.rain_system = "NiagaraActor_2"        # Normal rain
             self.rain_system_heavy = "NiagaraActor_4"  # Heavy rain
         # Other locations keep detected defaults
+        
+        # Hide ALL rain actors from other locations to prevent bleed-through
+        self._hide_all_rain_actors()
+
+    def _hide_all_rain_actors(self) -> None:
+        """Hide all known rain Niagara actors across all locations."""
+        for actor in self.ALL_RAIN_ACTORS:
+            path = f"{self.level_path}:PersistentLevel.{actor}"
+            self._call_remote(path, "SetIsTemporarilyHiddenInEditor", {"bIsHidden": True})
 
     # =========================================================================
     # REMOTE CONTROL HELPERS
@@ -780,7 +799,11 @@ class WeatherAugmentationController:
             else:
                 success = False
         
-        # Restore normal rain hidden state (use editor visibility)
+        # Restore rain: hide ALL rain actors across all locations to ensure clean state
+        self._hide_all_rain_actors()
+        logger.info("  Hidden all rain actors across all locations")
+        
+        # Then restore the specific rain actors for current location to their original state
         if self.rain_system and "rain_hidden" in self.original_settings:
             path = f"{self.level_path}:PersistentLevel.{self.rain_system}"
             result = self._call_remote(path, "SetIsTemporarilyHiddenInEditor", 
