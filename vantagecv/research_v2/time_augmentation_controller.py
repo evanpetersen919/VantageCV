@@ -46,6 +46,7 @@ class TimeState:
     sun_yaw: float        # Sun direction (compass heading)
     sky_intensity: float  # SkyLight intensity multiplier
     exposure_bias: float  # Post-process exposure compensation
+    sun_roll: float = -55.49  # Roll (baseline from UE5 level)
     description: str = ""
 
 
@@ -65,50 +66,52 @@ class TimeAugmentationResult:
 # DEFAULT TIME STATES (Configurable)
 # =============================================================================
 
+# Baseline detected from UE5: Pitch=-21.56, Yaw=175.22, Roll=-55.49
+# All states stay very close to baseline with only subtle variation.
 DEFAULT_TIME_STATES = {
     "dawn": TimeState(
         name="dawn",
-        sun_pitch=-5.0,       # Just below horizon
-        sun_yaw=90.0,         # East
+        sun_pitch=-8.0,       # Low sun near horizon
+        sun_yaw=105.0,        # East
         sky_intensity=0.3,
         exposure_bias=1.5,
         description="Early morning, golden hour start"
     ),
     "morning": TimeState(
         name="morning",
-        sun_pitch=-25.0,      # Low sun
-        sun_yaw=110.0,        # ESE
-        sky_intensity=0.8,
-        exposure_bias=0.5,
-        description="Mid-morning, soft shadows"
+        sun_pitch=-20.5,      # ~1° from baseline
+        sun_yaw=173.0,        # ~2° shift from baseline
+        sky_intensity=1.0,
+        exposure_bias=0.0,
+        description="Mid-morning, very subtle shadow shift"
     ),
     "noon": TimeState(
         name="noon",
-        sun_pitch=-75.0,      # Near overhead
-        sun_yaw=180.0,        # South
+        sun_pitch=-21.5,      # Baseline pitch
+        sun_yaw=175.0,        # Baseline yaw
         sky_intensity=1.0,
         exposure_bias=0.0,
-        description="Midday, harsh overhead light"
+        description="Midday, baseline lighting"
     ),
     "afternoon": TimeState(
         name="afternoon",
-        sun_pitch=-45.0,      # Medium height
-        sun_yaw=220.0,        # SW
-        sky_intensity=0.9,
+        sun_pitch=-21.0,      # ~0.5° from baseline
+        sun_yaw=177.0,        # ~2° shift from baseline
+        sky_intensity=1.0,
         exposure_bias=0.0,
-        description="Afternoon, medium shadows"
+        description="Afternoon, very subtle shadow shift"
     ),
     "sunset": TimeState(
         name="sunset",
         sun_pitch=-10.0,      # Low sun
-        sun_yaw=270.0,        # West
+        sun_yaw=255.0,        # West
         sky_intensity=0.4,
         exposure_bias=1.0,
         description="Golden hour, long shadows"
     ),
     "night": TimeState(
         name="night",
-        sun_pitch=20.0,       # Below horizon
+        sun_pitch=15.0,       # Below horizon
         sun_yaw=270.0,        # West (moon position)
         sky_intensity=0.05,
         exposure_bias=3.0,
@@ -393,7 +396,7 @@ class TimeAugmentationController:
         sun_rotation = {
             "Pitch": selected_state.sun_pitch,
             "Yaw": selected_state.sun_yaw,
-            "Roll": 0.0
+            "Roll": selected_state.sun_roll
         }
         
         path = f"{self.level_path}:PersistentLevel.{self.directional_light}"

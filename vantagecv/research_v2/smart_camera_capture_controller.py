@@ -554,13 +554,14 @@ class SmartCameraCaptureController:
                 seed: int = 42,
                 width: int = 1920,
                 height: int = 1080,
-                validate_scene: bool = True) -> CaptureResult:
+                validate_scene: bool = True,
+                camera_override: 'CameraPlacement' = None) -> CaptureResult:
         """
         Main capture workflow.
         
         1. Validate scene (if enabled)
         2. Discover visible vehicles
-        3. Compute camera placement
+        3. Compute camera placement (or use camera_override)
         4. Validate visibility
         5. Capture image
         6. Save metadata
@@ -571,6 +572,8 @@ class SmartCameraCaptureController:
             width: Image width
             height: Image height
             validate_scene: Whether to run scene validation first
+            camera_override: If provided, skip camera computation and use
+                             this placement directly (e.g. dashcam mode).
             
         Returns:
             CaptureResult with status and metadata
@@ -623,34 +626,46 @@ class SmartCameraCaptureController:
         best_placement = None
         best_visibility = None
         
-        for attempt in range(MAX_CAMERA_RETRIES):
-            # Compute camera placement
-            placement = self._compute_camera_placement(vehicles, attempt=attempt)
-            
-            # Set camera transform
-            if not self._set_camera_transform(placement):
-                logger.warning(f"Attempt {attempt + 1}: Failed to set camera transform")
-                continue
-            
-            # Validate visibility
-            logger.info(f"\n  Visibility check (attempt {attempt + 1}):")
-            visibility_results = self._validate_visibility(vehicles, placement)
-            
-            all_visible, reason = self._all_vehicles_visible(visibility_results)
-            
-            if all_visible:
-                best_placement = placement
-                best_visibility = visibility_results
-                logger.info(f"  ✓ All vehicles visible - using this placement")
-                break
-            else:
-                logger.warning(f"  ✗ Visibility check failed: {reason}")
-                # Keep best so far
-                if best_visibility is None or \
-                   sum(v.visible_percentage for v in visibility_results) > \
-                   sum(v.visible_percentage for v in best_visibility):
+        if camera_override is not None:
+            # ---- Dashcam / external override: use provided placement ----
+            logger.info("  Using camera_override (dashcam mode)")
+            if not self._set_camera_transform(camera_override):
+                return CaptureResult(
+                    status=CaptureStatus.FAILED_CAPTURE,
+                    failure_reason="Failed to set camera_override transform",
+                )
+            best_placement = camera_override
+            best_visibility = self._validate_visibility(vehicles, camera_override)
+        else:
+            # ---- Default: orbit-based camera placement ----
+            for attempt in range(MAX_CAMERA_RETRIES):
+                # Compute camera placement
+                placement = self._compute_camera_placement(vehicles, attempt=attempt)
+                
+                # Set camera transform
+                if not self._set_camera_transform(placement):
+                    logger.warning(f"Attempt {attempt + 1}: Failed to set camera transform")
+                    continue
+                
+                # Validate visibility
+                logger.info(f"\n  Visibility check (attempt {attempt + 1}):")
+                visibility_results = self._validate_visibility(vehicles, placement)
+                
+                all_visible, reason = self._all_vehicles_visible(visibility_results)
+                
+                if all_visible:
                     best_placement = placement
                     best_visibility = visibility_results
+                    logger.info(f"  ✓ All vehicles visible - using this placement")
+                    break
+                else:
+                    logger.warning(f"  ✗ Visibility check failed: {reason}")
+                    # Keep best so far
+                    if best_visibility is None or \
+                       sum(v.visible_percentage for v in visibility_results) > \
+                       sum(v.visible_percentage for v in best_visibility):
+                        best_placement = placement
+                        best_visibility = visibility_results
         
         if best_placement is None:
             return CaptureResult(

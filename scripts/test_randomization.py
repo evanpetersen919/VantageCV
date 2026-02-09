@@ -26,6 +26,10 @@ from vantagecv.research_v2.smart_camera_capture_controller import SmartCameraCap
 from vantagecv.research_v2.prop_zone_controller import PropZoneController
 from vantagecv.research_v2.time_augmentation_controller import TimeAugmentationController
 from vantagecv.research_v2.weather_augmentation_controller import WeatherAugmentationController
+from vantagecv.research_v2.dashcam_camera import (
+    compute_dashcam_placement,
+    filter_vehicles_for_dashcam,
+)
 
 
 # =============================================================================
@@ -455,6 +459,11 @@ def filter_anchors_by_location(anchors: Dict[str, List], location: int) -> Dict[
 # VEHICLE SPAWNING WITH ZONE CONSTRAINTS
 # =============================================================================
 
+# Total vehicles per picture
+MIN_VEHICLES_PER_FRAME = 1
+MAX_VEHICLES_PER_FRAME = 5
+
+
 def spawn_vehicles_with_constraints(
     spawner: VehicleSpawnController,
     seed: int,
@@ -463,10 +472,14 @@ def spawn_vehicles_with_constraints(
     stats: SpawnStats
 ) -> List:
     """
-    Spawn vehicles respecting zone constraints.
+    Spawn 1–5 vehicles total per picture.
     
-    Constraints:
-    - Bikes: Parking slots OR sidewalks (sidewalks not implemented yet)
+    Each vehicle slot randomly picks a category (equal 20% chance per
+    category).  The vehicle is then placed in a zone allowed for that
+    category.
+    
+    Zone constraints:
+    - Bikes: Sidewalks only
     - Motorcycles: Parking slots only
     - Buses: Road lanes only (max 1 bus per lane)
     - Cars: Parking slots OR road lanes
@@ -475,8 +488,9 @@ def spawn_vehicles_with_constraints(
     Args:
         spawner: Vehicle spawn controller
         seed: Random seed
-        vehicle_count: Target number of vehicles
-        parking_ratio: Ratio of parking vs lane placements
+        vehicle_count: Ignored; total is random 1–5
+        parking_ratio: For cats that support both parking + lane, ratio that
+                       go to parking vs lane
         stats: Statistics tracker
     
     Returns:
@@ -496,122 +510,123 @@ def spawn_vehicles_with_constraints(
     has_lanes = len(lane_defs) > 0
     has_sidewalk = sidewalk_bounds is not None
     
-    # Determine vehicle types for parking, lanes, and sidewalks based on constraints
-    parking_vehicle_types = []
-    lane_vehicle_types = []
-    sidewalk_vehicle_types = []
+    # ------------------------------------------------------------------
+    # Pick total count (1–5), then assign each slot a random category
+    # ------------------------------------------------------------------
+    total_count = random.randint(MIN_VEHICLES_PER_FRAME, MAX_VEHICLES_PER_FRAME)
     
+    # Build list of spawnable categories (those with at least one available zone)
+    spawnable_cats = []
     for cat in ALL_VEHICLE_CATEGORIES:
         allowed_zones = VEHICLE_ZONE_CONSTRAINTS.get(cat, [])
-        
-        # Check if ANY allowed zone is available
         has_any_zone = (
             ("parking" in allowed_zones and has_parking) or
             ("lane" in allowed_zones and has_lanes) or
             ("sidewalk" in allowed_zones and has_sidewalk)
         )
-        
-        if not has_any_zone:
-            # No valid zones for this category - skip it
+        if has_any_zone:
+            spawnable_cats.append(cat)
+        else:
             stats.log_skip_no_zone(cat)
+    
+    if not spawnable_cats:
+        print("    [SKIP] No spawnable categories (no zones available)")
+        return all_spawned
+    
+    # Assign each vehicle slot a random category (equal probability)
+    category_counts: Dict[str, int] = {cat: 0 for cat in spawnable_cats}
+    for _ in range(total_count):
+        chosen = random.choice(spawnable_cats)
+        category_counts[chosen] += 1
+    
+    # Cap buses by number of available lanes
+    if "bus" in category_counts and has_lanes:
+        category_counts["bus"] = min(category_counts["bus"], len(lane_defs))
+    
+    print(f"    Total vehicles: {total_count}  →  {', '.join(f'{c}={n}' for c, n in category_counts.items() if n > 0)}")
+    
+    # ------------------------------------------------------------------
+    # Dispatch each category to its allowed zone(s)
+    # ------------------------------------------------------------------
+    lane_spawned_bounds = []
+    
+    for cat in ALL_VEHICLE_CATEGORIES:
+        cat_count = category_counts.get(cat, 0)
+        if cat_count == 0:
             continue
         
-        # Add to appropriate zone lists
-        if "parking" in allowed_zones and has_parking:
-            parking_vehicle_types.append(cat)
+        allowed_zones = VEHICLE_ZONE_CONSTRAINTS.get(cat, [])
+        zone_options = [z for z in allowed_zones
+                        if (z == "parking" and has_parking) or
+                           (z == "lane" and has_lanes) or
+                           (z == "sidewalk" and has_sidewalk)]
         
-        if "lane" in allowed_zones and has_lanes:
-            lane_vehicle_types.append(cat)
+        parking_count = 0
+        lane_count = 0
+        sidewalk_count = 0
         
-        if "sidewalk" in allowed_zones and has_sidewalk:
-            sidewalk_vehicle_types.append(cat)
-    
-    # Decide how many go to parking vs lanes
-    parking_count = sum(1 for _ in range(vehicle_count) if random.random() < parking_ratio)
-    lane_count = vehicle_count - parking_count
-    
-    # Spawn parking vehicles (motorcycles, cars, trucks)
-    if parking_count > 0 and parking_vehicle_types:
-        stats.log_attempt("parking", f"{parking_count} vehicles")
-        parking_result = spawner.spawn_parking(
-            seed=seed,
-            count=parking_count,
-            vehicle_types=parking_vehicle_types
-        )
-        for v in parking_result.spawned_vehicles:
-            stats.log_success(v.category, v.name, v.anchor_name)
-            all_spawned.append(v)
-    elif parking_count > 0:
-        print(f"    [SKIP] No valid vehicle types for parking")
-    
-    # Spawn lane vehicles (buses, cars, trucks)
-    # CONSTRAINT: Max 1 bus per lane
-    if lane_count > 0 and lane_vehicle_types:
-        stats.log_attempt("lane", f"{lane_count} vehicles")
-        
-        # If buses are allowed, limit to max 1 per lane
-        if "bus" in lane_vehicle_types:
-            max_buses = len(lane_defs)  # One bus per lane maximum
-            
-            # Spawn buses first (limited to number of lanes)
-            bus_count = min(
-                sum(1 for _ in range(lane_count) if random.random() < 0.3),  # 30% chance for bus
-                max_buses  # But never more than number of lanes
-            )
-            
-            # Track bounds across multiple spawn calls for collision detection
-            lane_spawned_bounds = []
-            
-            if bus_count > 0:
-                bus_result = spawner.spawn_lane(
-                    seed=seed + 1000,
-                    count=bus_count,
-                    vehicle_types=["bus"]
-                )
-                for v in bus_result.spawned_vehicles:
-                    stats.log_success(v.category, v.name, v.anchor_name)
-                    all_spawned.append(v)
-                
-                # Collect bounds from spawned buses for next spawn call
-                lane_spawned_bounds = bus_result.spawned_bounds
-                
-                # Reduce lane_count for remaining vehicles
-                lane_count -= bus_count
-            
-            # Remove bus from available types for remaining vehicles
-            lane_vehicle_types_remaining = [t for t in lane_vehicle_types if t != "bus"]
+        if len(zone_options) == 1:
+            zone = zone_options[0]
+            if zone == "parking":
+                parking_count = cat_count
+            elif zone == "lane":
+                lane_count = cat_count
+            elif zone == "sidewalk":
+                sidewalk_count = cat_count
         else:
-            lane_vehicle_types_remaining = lane_vehicle_types
-            lane_spawned_bounds = []
+            # Multiple zone options — split using parking_ratio
+            for _ in range(cat_count):
+                if "parking" in zone_options and "lane" in zone_options:
+                    if random.random() < parking_ratio:
+                        parking_count += 1
+                    else:
+                        lane_count += 1
+                elif "parking" in zone_options and "sidewalk" in zone_options:
+                    if random.random() < parking_ratio:
+                        parking_count += 1
+                    else:
+                        sidewalk_count += 1
+                else:
+                    if "lane" in zone_options:
+                        lane_count += 1
+                    elif "sidewalk" in zone_options:
+                        sidewalk_count += 1
         
-        # Spawn remaining lane vehicles (cars, trucks)
-        # Pass existing bounds so they don't spawn inside buses!
-        if lane_count > 0 and lane_vehicle_types_remaining:
-            other_result = spawner.spawn_lane(
-                seed=seed + 2000,
-                count=lane_count,
-                vehicle_types=lane_vehicle_types_remaining,
-                existing_bounds=lane_spawned_bounds  # Pass bus bounds!
+        print(f"    [{cat}] {cat_count} (parking={parking_count}, lane={lane_count}, sidewalk={sidewalk_count})")
+        
+        # ---- Parking spawn for this category ----
+        if parking_count > 0:
+            stats.log_attempt(cat, f"{parking_count} parking")
+            parking_result = spawner.spawn_parking(
+                seed=seed + hash(cat) % 10000,
+                count=parking_count,
+                vehicle_types=[cat]
             )
-            for v in other_result.spawned_vehicles:
+            for v in parking_result.spawned_vehicles:
                 stats.log_success(v.category, v.name, v.anchor_name)
                 all_spawned.append(v)
-    elif lane_count > 0:
-        print(f"    [SKIP] No valid vehicle types for lanes")
-    
-    # Spawn sidewalk vehicles (bicycles)
-    # Uses anchor-based bounds (2 corner anchors define sidewalk region)
-    # Bicycles spawn at random positions within anchor-defined bounds with collision avoidance
-    if has_sidewalk and sidewalk_vehicle_types:
-        # 50% chance to spawn bicycles on sidewalk
-        if random.random() < 0.5:
-            sidewalk_count = random.randint(1, 2)  # 1-2 bicycles per sidewalk
-            stats.log_attempt("sidewalk", f"{sidewalk_count} vehicles")
-            
+        
+        # ---- Lane spawn for this category ----
+        if lane_count > 0:
+            stats.log_attempt(cat, f"{lane_count} lane")
+            lane_result = spawner.spawn_lane(
+                seed=seed + hash(cat) % 10000 + 1000,
+                count=lane_count,
+                vehicle_types=[cat],
+                existing_bounds=lane_spawned_bounds
+            )
+            for v in lane_result.spawned_vehicles:
+                stats.log_success(v.category, v.name, v.anchor_name)
+                all_spawned.append(v)
+            lane_spawned_bounds = lane_result.spawned_bounds
+        
+        # ---- Sidewalk spawn for this category ----
+        if sidewalk_count > 0:
+            stats.log_attempt(cat, f"{sidewalk_count} sidewalk")
             sidewalk_result = spawner.spawn_sidewalk(
-                seed=seed + 3000,  # Separate seed for sidewalk
+                seed=seed + hash(cat) % 10000 + 3000,
                 count=sidewalk_count,
-                vehicle_types=sidewalk_vehicle_types
+                vehicle_types=[cat]
             )
             for v in sidewalk_result.spawned_vehicles:
                 stats.log_success(v.category, v.name, v.anchor_name)
@@ -816,7 +831,11 @@ def main():
             
             try:
                 # Step 1: Time augmentation (before any spawning)
-                time_result = time_controller.randomize(seed=seed)
+                # Exclude night/dawn/sunset — too dark without exposure compensation
+                time_result = time_controller.randomize(
+                    seed=seed,
+                    allowed_states=["morning", "noon", "afternoon"]
+                )
                 if not time_result.success:
                     print(f"  ✗ Time augmentation failed: {time_result.failure_reason}")
                     failed += 1
@@ -857,17 +876,39 @@ def main():
                     failed += 1
                     continue
                 
-                # Step 4: Spawn props with same seed
+                # Step 4: Dashcam placement + spatial filter
+                #   - Pick a random lane for the camera
+                #   - Hide vehicles that violate dashcam spatial rules
+                dashcam = compute_dashcam_placement(spawner, seed=seed + 9000)
+                camera_placement = None
+                if dashcam:
+                    print(f"  Dashcam: lane={dashcam.lane_id}, "
+                          f"yaw={dashcam.rotation['Yaw']:.1f}°")
+                    filter_result = filter_vehicles_for_dashcam(
+                        dashcam, spawned_vehicles, spawner
+                    )
+                    camera_placement = dashcam.to_camera_placement()
+                    
+                    # Check that at least one vehicle survived filtering
+                    if not filter_result.kept_vehicles:
+                        print(f"  ✗ All vehicles filtered out by dashcam rules")
+                        failed += 1
+                        continue
+                else:
+                    print("  [WARN] No dashcam placement — falling back to orbit camera")
+                
+                # Step 5: Spawn props with same seed
                 prop_result = prop_controller.spawn_all(seed=seed, spawn_chance=0.2)
                 print(f"  Props spawned: {len(prop_result.spawned_props)}")
                 
-                # Step 5: Capture
+                # Step 6: Capture (dashcam override or default orbit)
                 result = capture_controller.capture(
                     output_path=str(output_path),
                     seed=seed,
                     width=1920,
                     height=1080,
-                    validate_scene=False  # Skip for speed
+                    validate_scene=False,  # Skip for speed
+                    camera_override=camera_placement
                 )
                 
                 if result.status.value == "SUCCESS":
