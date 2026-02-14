@@ -194,7 +194,7 @@ bool ADataCapture::CaptureFrame(const FString& OutputPath, int32 Width, int32 He
 	CaptureComponent->PostProcessSettings.bOverride_AutoExposureMethod = true;
 	CaptureComponent->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
 	CaptureComponent->PostProcessSettings.bOverride_AutoExposureBias = true;
-	CaptureComponent->PostProcessSettings.AutoExposureBias = -15.0f;  // EXTREME negative bias - scene is very bright
+	CaptureComponent->PostProcessSettings.AutoExposureBias = 0.0f;  // Neutral exposure - matches noon time state
 	
 	// Disable bloom and vignette for clean synthetic data
 	CaptureComponent->PostProcessSettings.bOverride_BloomIntensity = true;
