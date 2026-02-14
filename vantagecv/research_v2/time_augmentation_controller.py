@@ -421,9 +421,17 @@ class TimeAugmentationController:
             else:
                 logger.warning("  Failed to set sky intensity")
         
-        # Apply exposure bias (simplified - full implementation would use post process settings)
+        # Apply exposure bias to DataCapture actor via Remote Control
         exposure_applied = selected_state.exposure_bias
-        logger.info(f"  Exposure bias: {selected_state.exposure_bias}")
+        if exposure_applied is not None:
+            dc_path = f"{self.level_path}:PersistentLevel.DataCapture_1"
+            success = self._set_property(dc_path, "ExposureBiasOverride", exposure_applied)
+            if success:
+                logger.info(f"  Exposure bias: {exposure_applied} (applied to DataCapture)")
+            else:
+                logger.warning(f"  Exposure bias: {exposure_applied} (FAILED to apply - DataCapture may need rebuild)")
+        else:
+            logger.info(f"  Exposure bias: 0.0 (default)")
         
         # Log seed
         if seed is not None:

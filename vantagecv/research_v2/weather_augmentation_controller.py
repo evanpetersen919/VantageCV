@@ -515,7 +515,12 @@ class WeatherAugmentationController:
     # =========================================================================
     
     def _apply_directional_light(self, state: WeatherState, warnings: List[str]) -> Dict[str, Any]:
-        """Apply directional light settings using SetIntensity function"""
+        """Apply directional light settings using SetIntensity function.
+        
+        sun_intensity in WeatherState is a MULTIPLIER (0.0-1.0) applied to the
+        original scene intensity. This preserves the level's lighting setup while
+        allowing weather to dim the sun proportionally.
+        """
         applied = {}
         
         if not self.directional_light:
@@ -525,22 +530,26 @@ class WeatherAugmentationController:
         component = self.original_settings.get("sun_component", "LightComponent0")
         path = f"{self.level_path}:PersistentLevel.{self.directional_light}.{component}"
         
+        # Apply sun_intensity as multiplier × original intensity
+        original_intensity = self.original_settings.get("sun_intensity", 1.0)
+        actual_intensity = original_intensity * state.sun_intensity
+        
         # Use SetIntensity function (property setting doesn't work)
-        result = self._call_remote(path, "SetIntensity", {"NewIntensity": state.sun_intensity})
+        result = self._call_remote(path, "SetIntensity", {"NewIntensity": actual_intensity})
         if result is not None:
-            applied["sun_intensity"] = state.sun_intensity
-            logger.info(f"    Sun intensity: {state.sun_intensity}")
+            applied["sun_intensity"] = actual_intensity
+            logger.info(f"    Sun intensity: {actual_intensity:.1f} (original {original_intensity:.1f} × {state.sun_intensity})")
         else:
             # Try alternate components
             for alt_component in ["LightComponent0", "DirectionalLightComponent", "LightComponent"]:
                 if alt_component == component:
                     continue
                 alt_path = f"{self.level_path}:PersistentLevel.{self.directional_light}.{alt_component}"
-                result = self._call_remote(alt_path, "SetIntensity", {"NewIntensity": state.sun_intensity})
+                result = self._call_remote(alt_path, "SetIntensity", {"NewIntensity": actual_intensity})
                 if result is not None:
-                    applied["sun_intensity"] = state.sun_intensity
+                    applied["sun_intensity"] = actual_intensity
                     self.original_settings["sun_component"] = alt_component
-                    logger.info(f"    Sun intensity: {state.sun_intensity}")
+                    logger.info(f"    Sun intensity: {actual_intensity:.1f} (original {original_intensity:.1f} × {state.sun_intensity})")
                     break
             else:
                 warnings.append("Failed to set sun intensity")

@@ -113,6 +113,12 @@ private:
 	UPROPERTY()
 	UTextureRenderTarget2D* SegmentationTarget;
 
+	/** Exposure bias override - set via Remote Control before capture.
+	 *  Default 0.0 = neutral. Positive = brighter, Negative = darker.
+	 *  Used by time-of-day augmentation to compensate for dawn/sunset/night. */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "VantageCV", meta=(AllowPrivateAccess="true"))
+	float ExposureBiasOverride;
+
 	/** Scene center point - camera orbits around this location */
 	UPROPERTY()
 	FVector SceneCenter;

@@ -77,6 +77,7 @@ ADataCapture::ADataCapture()
 	// Initialize scene center to zero (will be set in BeginPlay)
 	SceneCenter = FVector::ZeroVector;
 	InitialFOV = 90.0f;
+	ExposureBiasOverride = 0.0f;  // Neutral by default - Python sets per time-of-day state
 }
 
 void ADataCapture::BeginPlay()
@@ -194,7 +195,7 @@ bool ADataCapture::CaptureFrame(const FString& OutputPath, int32 Width, int32 He
 	CaptureComponent->PostProcessSettings.bOverride_AutoExposureMethod = true;
 	CaptureComponent->PostProcessSettings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
 	CaptureComponent->PostProcessSettings.bOverride_AutoExposureBias = true;
-	CaptureComponent->PostProcessSettings.AutoExposureBias = 0.0f;  // Neutral exposure - matches noon time state
+	CaptureComponent->PostProcessSettings.AutoExposureBias = ExposureBiasOverride;  // Set via Remote Control (default 0.0 = neutral)
 	
 	// Disable bloom and vignette for clean synthetic data
 	CaptureComponent->PostProcessSettings.bOverride_BloomIntensity = true;
@@ -208,8 +209,8 @@ bool ADataCapture::CaptureFrame(const FString& OutputPath, int32 Width, int32 He
 	CaptureComponent->PostProcessSettings.bOverride_MotionBlurAmount = true;
 	CaptureComponent->PostProcessSettings.MotionBlurAmount = 0.0f;
 	
-	UE_LOG(LogDataCapture, Log, TEXT("Capture Config: Source=SCS_FinalColorLDR, BlendWeight=%.1f, Manual Exposure, Bias=%.1f"),
-		CaptureComponent->PostProcessBlendWeight, CaptureComponent->PostProcessSettings.AutoExposureBias);
+	UE_LOG(LogDataCapture, Log, TEXT("Capture Config: Source=SCS_FinalColorLDR, BlendWeight=%.1f, Manual Exposure, Bias=%.1f (ExposureBiasOverride=%.1f)"),
+		CaptureComponent->PostProcessBlendWeight, CaptureComponent->PostProcessSettings.AutoExposureBias, ExposureBiasOverride);
 
 	// Create render target (RGBA8 linear for deterministic output)
 	if (!RenderTarget || RenderTarget->SizeX != Width || RenderTarget->SizeY != Height)
