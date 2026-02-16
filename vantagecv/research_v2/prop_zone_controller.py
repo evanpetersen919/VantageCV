@@ -1394,7 +1394,7 @@ class PropZoneController:
         
         # Spawn each type with offset seeds for independence
         barrier_result = self.spawn_barriers(seed, spawn_chance)
-        vegetation_result = self.spawn_vegetation(seed + 1000, 0.3)  # Vegetation at 30%
+        vegetation_result = self.spawn_vegetation(seed + 1000, 0.24)  # Vegetation at 24% (80% of 30%)
         sign_result = self.spawn_signs(seed + 2000, spawn_chance)
         furniture_result = self.spawn_furniture(seed + 3000, spawn_chance)
         roadtrash_result = self.spawn_roadtrash(seed + 4000)
