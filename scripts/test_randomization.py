@@ -901,7 +901,11 @@ def main():
                 prop_result = prop_controller.spawn_all(seed=seed, spawn_chance=0.2)
                 print(f"  Props spawned: {len(prop_result.spawned_props)}")
                 
-                # Step 6: Capture (dashcam override or default orbit)
+                # Step 6: Let UE5 settle before capture
+                # Scene changes (vehicle teleports, lighting, weather) need time to render
+                time.sleep(0.3)
+                
+                # Step 7: Capture (dashcam override or default orbit)
                 result = capture_controller.capture(
                     output_path=str(output_path),
                     seed=seed,

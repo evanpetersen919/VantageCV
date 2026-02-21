@@ -580,9 +580,10 @@ bool ADataCapture::SaveRenderTargetToFile(UTextureRenderTarget2D* InRenderTarget
 	
 	UE_LOG(LogDataCapture, Log, TEXT("Reading %dx%d pixels..."), InRenderTarget->SizeX, InRenderTarget->SizeY);
 	
-	// Apply gamma correction when reading to brighten the output
+	// SCS_FinalColorLDR already outputs tonemapped gamma-corrected values.
+	// SetLinearToGamma(false) prevents DOUBLE gamma which causes dark images.
 	FReadSurfaceDataFlags ReadFlags(RCM_UNorm);
-	ReadFlags.SetLinearToGamma(true);  // Apply 2.2 gamma curve
+	ReadFlags.SetLinearToGamma(false);  // NO gamma — SCS_FinalColorLDR already bakes it in
 	if (!RTResource->ReadPixels(Pixels, ReadFlags))
 	{
 		UE_LOG(LogDataCapture, Error, TEXT("Failed to read pixels from render target"));
@@ -625,6 +626,6 @@ bool ADataCapture::ReadRenderTargetPixels(UTextureRenderTarget2D* InRenderTarget
 	OutPixels.SetNum(InRenderTarget->SizeX * InRenderTarget->SizeY);
 	
 	FReadSurfaceDataFlags ReadPixelFlags(RCM_UNorm);
-	ReadPixelFlags.SetLinearToGamma(true);  // Apply gamma correction
+	ReadPixelFlags.SetLinearToGamma(false);  // NO gamma — SCS_FinalColorLDR already includes it
 	return RTResource->ReadPixels(OutPixels, ReadPixelFlags);
 }

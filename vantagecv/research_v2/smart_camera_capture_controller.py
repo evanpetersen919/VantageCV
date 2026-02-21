@@ -524,25 +524,41 @@ class SmartCameraCaptureController:
     # ========================================================================
     
     def _capture_image(self, output_path: str, width: int = 1920, height: int = 1080) -> bool:
-        """Capture image using DataCapture actor"""
+        """Capture image using DataCapture actor with retry logic."""
+        import time
         from pathlib import Path
         
         # Convert to absolute path - UE5 needs full path for file operations
         absolute_path = str(Path(output_path).resolve())
-        
         path = f"{self.level_path}:PersistentLevel.{self.data_capture_actor}"
         
-        result = self._call_remote(path, "CaptureFrame", {
-            "OutputPath": absolute_path,
-            "Width": width,
-            "Height": height
-        })
+        MAX_RETRIES = 3
+        for attempt in range(MAX_RETRIES):
+            if attempt > 0:
+                logger.warning(f"Capture retry {attempt + 1}/{MAX_RETRIES}...")
+                time.sleep(0.5)  # Wait before retry
+            
+            result = self._call_remote(path, "CaptureFrame", {
+                "OutputPath": absolute_path,
+                "Width": width,
+                "Height": height
+            })
+            
+            if result and result.get("ReturnValue", False):
+                # Verify file was actually written
+                if Path(absolute_path).exists():
+                    logger.info(f"Image captured: {output_path}")
+                    return True
+                else:
+                    logger.warning(f"CaptureFrame returned true but file not found: {absolute_path}")
+                    time.sleep(0.3)  # GPU may still be flushing
+                    if Path(absolute_path).exists():
+                        logger.info(f"Image captured (delayed write): {output_path}")
+                        return True
+            else:
+                logger.warning(f"CaptureFrame returned false (attempt {attempt + 1})")
         
-        if result and result.get("ReturnValue", False):
-            logger.info(f"Image captured: {output_path}")
-            return True
-        
-        logger.error(f"Failed to capture image: {output_path}")
+        logger.error(f"Failed to capture image after {MAX_RETRIES} attempts: {output_path}")
         return False
     
     # ========================================================================
