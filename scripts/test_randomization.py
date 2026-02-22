@@ -532,6 +532,44 @@ def get_camera_spawn_bounds(host="127.0.0.1", port=30010,
     return bounds
 
 
+def set_camera_bounds_visibility(visible: bool, host="127.0.0.1", port=30010,
+                                  level_path="/Game/automobileV2.automobileV2",
+                                  actor="DataCapture_2"):
+    """Show or hide the boundary cubes on DataCapture_2."""
+    import requests
+    base_url = f"http://{host}:{port}/remote"
+    s = requests.Session()
+    s.headers.update({"Content-Type": "application/json"})
+    path = f"{level_path}:PersistentLevel.{actor}"
+
+    try:
+        r = s.put(f"{base_url}/object/call", json={
+            "objectPath": path,
+            "functionName": "GetComponentsByClass",
+            "parameters": {"ComponentClass": "/Script/Engine.StaticMeshComponent"}
+        }, timeout=5)
+        if r.status_code != 200:
+            return
+    except Exception:
+        return
+
+    for c in r.json().get("ReturnValue", []):
+        name = c.split(".")[-1] if "." in c else c
+        if not name.startswith("Cube"):
+            continue
+        try:
+            s.put(f"{base_url}/object/call", json={
+                "objectPath": c,
+                "functionName": "SetVisibility",
+                "parameters": {"bNewVisibility": visible, "bPropagateToChildren": False}
+            }, timeout=3)
+        except Exception:
+            pass
+
+    state = "shown" if visible else "hidden"
+    print(f"  Camera boundary cubes {state}")
+
+
 def filter_vehicles_by_camera_bounds(spawned_vehicles, spawner, bounds):
     """
     DEPRECATED — replaced by filter_anchor_config_by_camera_bounds.
@@ -1150,6 +1188,7 @@ def main():
     if camera_bounds:
         print("\nFiltering spawn anchors to camera bounds...")
         filter_anchor_config_by_camera_bounds(spawner, camera_bounds)
+        set_camera_bounds_visibility(False)
     else:
         print("WARNING: Could not detect camera spawn bounds - vehicles may spawn outside camera view")
     
@@ -1364,6 +1403,7 @@ def main():
         else:
             print(f"\n[OK] Level restored to pre-test state ({restored} actors)")
         print("=" * 60)
+        set_camera_bounds_visibility(True)
 
 if __name__ == "__main__":
     main()
