@@ -49,6 +49,10 @@ MIN_CAMERA_VEHICLE_CLEARANCE_CM = 300.0
 # Maximum number of vehicles allowed in the same lane as the camera
 MAX_SAME_LANE_VEHICLES = 1
 
+# Maximum distance from camera to keep a vehicle (cm)
+# Vehicles farther than this are hidden — keeps scene tight for dashcam realism
+MAX_VEHICLE_DISTANCE_CM = 8000.0  # 80 m
+
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -270,6 +274,14 @@ def _apply_rules(info: VehicleSpatialInfo) -> VehicleSpatialInfo:
     if info.adjacent_lane and info.forward_dist < MIN_AHEAD_DISTANCE_CM:
         info.rule_violated = (
             f"adjacent lane not ahead (fwd={info.forward_dist:.0f}cm)"
+        )
+        return info
+
+    # Rule 5: Vehicle must be within max distance from camera
+    total_dist = math.sqrt(info.forward_dist ** 2 + info.lateral_dist ** 2)
+    if total_dist > MAX_VEHICLE_DISTANCE_CM:
+        info.rule_violated = (
+            f"too far from camera ({total_dist:.0f}cm > {MAX_VEHICLE_DISTANCE_CM:.0f}cm)"
         )
         return info
 

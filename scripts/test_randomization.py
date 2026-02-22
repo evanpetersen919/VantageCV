@@ -461,7 +461,7 @@ def filter_anchors_by_location(anchors: Dict[str, List], location: int) -> Dict[
 
 # Total vehicles per picture
 MIN_VEHICLES_PER_FRAME = 1
-MAX_VEHICLES_PER_FRAME = 5
+MAX_VEHICLES_PER_FRAME = 2
 
 
 def spawn_vehicles_with_constraints(
@@ -814,13 +814,13 @@ def main():
             # Vary parameters
             if i % 3 == 0:
                 parking_ratio = 1.0  # All parking
-                vehicle_count = 3
+                vehicle_count = 2
             elif i % 3 == 1:
                 parking_ratio = 0.0  # All lanes
-                vehicle_count = 4
+                vehicle_count = 2
             else:
                 parking_ratio = 0.5  # Mixed
-                vehicle_count = 5
+                vehicle_count = 2
             
             output_path = output_dir / f"frame_{i:03d}.png"
             
