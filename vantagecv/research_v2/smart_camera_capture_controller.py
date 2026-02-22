@@ -416,7 +416,7 @@ class SmartCameraCaptureController:
             "bTeleport": True
         })
         
-        if not loc_result:
+        if loc_result is None:
             logger.error("Failed to set camera location")
             return False
         
@@ -426,7 +426,7 @@ class SmartCameraCaptureController:
             "bTeleportPhysics": True
         })
         
-        if not rot_result:
+        if rot_result is None:
             logger.error("Failed to set camera rotation")
             return False
         
