@@ -10,6 +10,7 @@
 
 #include "DataCapture.h"
 #include "Components/SceneCaptureComponent2D.h"
+#include "Components/DrawFrustumComponent.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "ImageUtils.h"
 #include "IImageWrapper.h"
@@ -74,6 +75,15 @@ ADataCapture::ADataCapture()
 	}
 
 	
+	// Debug frustum — editor-only FOV visualizer
+	DebugFrustum = CreateDefaultSubobject<UDrawFrustumComponent>(TEXT("DebugFrustum"));
+	DebugFrustum->SetupAttachment(CaptureComponent);
+	DebugFrustum->FrustumAngle = 90.0f;           // Matches InitialFOV
+	DebugFrustum->FrustumAspectRatio = 1.7778f;   // 16:9
+	DebugFrustum->FrustumStartDist = 10.0f;       // Near clip (cm)
+	DebugFrustum->FrustumEndDist = 5000.0f;       // Draw frustum out to 50 m
+	DebugFrustum->bHiddenInGame = true;            // Editor only
+
 	// Initialize scene center to zero (will be set in BeginPlay)
 	SceneCenter = FVector::ZeroVector;
 	InitialFOV = 90.0f;
@@ -227,6 +237,12 @@ bool ADataCapture::CaptureFrame(const FString& OutputPath, int32 Width, int32 He
 	// Assign render target to capture component
 	CaptureComponent->TextureTarget = RenderTarget;
 	
+	// Sync debug frustum to current capture FOV so editor overlay stays accurate
+	if (DebugFrustum)
+	{
+		DebugFrustum->FrustumAngle = CaptureComponent->FOVAngle;
+	}
+
 	// Log camera transform for debugging
 	FVector ActorLoc = GetActorLocation();
 	FRotator ActorRot = GetActorRotation();
