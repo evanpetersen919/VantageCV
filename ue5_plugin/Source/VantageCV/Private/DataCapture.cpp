@@ -108,7 +108,7 @@ void ADataCapture::Tick(float DeltaTime)
 
 #if WITH_EDITOR
 	// Always draw FOV frustum in editor so you can see exactly what DataCapture will capture
-	if (GetWorld() && GetWorld()->WorldType == EWorldType::Editor && CaptureComponent)
+	if (GetWorld() && !GetWorld()->IsGameWorld() && CaptureComponent)
 	{
 		const FVector  Loc = GetActorLocation();
 		const FRotator Rot = GetActorRotation();
