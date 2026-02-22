@@ -82,7 +82,7 @@ DEFAULT_TIME_STATES = {
         sun_pitch=-20.5,      # ~1° from baseline
         sun_yaw=173.0,        # ~2° shift from baseline
         sky_intensity=1.0,
-        exposure_bias=0.0,
+        exposure_bias=3.0,    # Manual exposure needs compensation for daytime
         description="Mid-morning, very subtle shadow shift"
     ),
     "noon": TimeState(
@@ -90,7 +90,7 @@ DEFAULT_TIME_STATES = {
         sun_pitch=-21.5,      # Baseline pitch
         sun_yaw=175.0,        # Baseline yaw
         sky_intensity=1.0,
-        exposure_bias=0.0,
+        exposure_bias=2.5,    # Manual exposure needs compensation for daytime
         description="Midday, baseline lighting"
     ),
     "afternoon": TimeState(
@@ -98,7 +98,7 @@ DEFAULT_TIME_STATES = {
         sun_pitch=-21.0,      # ~0.5° from baseline
         sun_yaw=177.0,        # ~2° shift from baseline
         sky_intensity=1.0,
-        exposure_bias=0.0,
+        exposure_bias=3.0,    # Manual exposure needs compensation for daytime
         description="Afternoon, very subtle shadow shift"
     ),
     "sunset": TimeState(
