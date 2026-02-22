@@ -326,7 +326,7 @@ Examples:
                        help="UE5 Remote Control port")
     parser.add_argument("--level", default="/Game/automobileV2.automobileV2",
                        help="Level path")
-    parser.add_argument("--data-capture", default="DataCapture_1",
+    parser.add_argument("--data-capture", default="DataCapture_2",
                        help="DataCapture actor name")
     
     # Flags

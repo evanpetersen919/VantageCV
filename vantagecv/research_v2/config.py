@@ -103,8 +103,8 @@ class VehicleSpawnerConfig:
     
     # World offset - camera position in UE5 level (centimeters)
     # This translates spawn coordinates to world coordinates
-    world_offset_x: float = 8047.0   # cm - DataCapture_1 X position
-    world_offset_y: float = 7926.0   # cm - DataCapture_1 Y position  
+    world_offset_x: float = 8047.0   # cm - DataCapture_2 X position
+    world_offset_y: float = 7926.0   # cm - DataCapture_2 Y position  
     world_offset_z: float = 0.0      # cm - Ground level (vehicles sit on ground)
     
     # Per-vehicle randomization

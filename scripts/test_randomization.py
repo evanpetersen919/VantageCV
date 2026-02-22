@@ -790,7 +790,7 @@ def main():
         host="127.0.0.1",
         port=30010,
         level_path="/Game/automobileV2.automobileV2",
-        data_capture_actor="DataCapture_1"
+        data_capture_actor="DataCapture_2"
     )
     
     output_dir = Path("output/randomization_test")

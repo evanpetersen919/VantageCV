@@ -424,7 +424,7 @@ class TimeAugmentationController:
         # Apply exposure bias to DataCapture actor via Remote Control
         exposure_applied = selected_state.exposure_bias
         if exposure_applied is not None:
-            dc_path = f"{self.level_path}:PersistentLevel.DataCapture_1"
+            dc_path = f"{self.level_path}:PersistentLevel.DataCapture_2"
             success = self._set_property(dc_path, "ExposureBiasOverride", exposure_applied)
             if success:
                 logger.info(f"  Exposure bias: {exposure_applied} (applied to DataCapture)")

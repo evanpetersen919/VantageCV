@@ -57,7 +57,7 @@ class UE5Bridge:
         
         # Store actor paths (auto-discovered from automobile level)
         self.scene_controller_path = scene_controller_path or "/Game/automobile.automobile:PersistentLevel.SceneController_1"
-        self.data_capture_path = data_capture_path or "/Game/automobile.automobile:PersistentLevel.DataCapture_1"
+        self.data_capture_path = data_capture_path or "/Game/automobile.automobile:PersistentLevel.DataCapture_2"
         
         # Level name for actor path construction
         self.level_name = "automobile"  # Will be used for actor paths

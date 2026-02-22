@@ -45,7 +45,7 @@ Vehicle 5: X=10000, Y=12000, Z=0, Rotation=(0,90,0)  # Lane 1
 
 ## VantageCV Actor Placement
 
-### DataCapture_1 Actor
+### DataCapture_2 Actor
 **CRITICAL:** This actor's position defines where the camera orbits!
 
 **Position: X=10000, Y=10000, Z=200**
@@ -108,7 +108,7 @@ domain_randomization:
 
 1. **Position Ground Plane:** Z=0
 2. **Position Vehicles:** Use one of the layouts above
-3. **Position DataCapture_1:** At scene center (e.g., X=10000, Y=10000, Z=200)
+3. **Position DataCapture_2:** At scene center (e.g., X=10000, Y=10000, Z=200)
 4. **Position DomainRandomization_1:** At scene center (e.g., X=10000, Y=10000, Z=0)
 5. **Position SceneController_1:** Anywhere (e.g., X=5000, Y=5000, Z=0)
 
@@ -132,7 +132,7 @@ Camera will randomize position in spherical coordinates around your vehicles.
 - Run `python scripts/preflight_check.py` to verify randomization
 
 **Camera pointing at wrong thing?**
-- Check DataCapture_1 actor position - this is the orbit center
+- Check DataCapture_2 actor position - this is the orbit center
 - Camera always looks at this point
 
 **Distractors too big?**
