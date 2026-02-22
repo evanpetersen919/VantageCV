@@ -97,9 +97,6 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
-	/** Allow Tick to run in editor viewports (needed for DrawDebugCamera FOV overlay) */
-	virtual bool ShouldTickIfViewportsOnly() const override { return true; }
-
 public:	
 	virtual void Tick(float DeltaTime) override;
 
@@ -107,10 +104,6 @@ private:
 	/** Scene capture component for rendering */
 	UPROPERTY()
 	class USceneCaptureComponent2D* CaptureComponent;
-
-	/** FOV frustum visualizer — always visible in editor viewport */
-	UPROPERTY()
-	class UDrawFrustumComponent* FrustumVis;
 
 	/** Render target for capturing images */
 	UPROPERTY()

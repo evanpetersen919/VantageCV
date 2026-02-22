@@ -10,7 +10,6 @@
 
 #include "DataCapture.h"
 #include "Components/SceneCaptureComponent2D.h"
-#include "Components/DrawFrustumComponent.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "ImageUtils.h"
 #include "IImageWrapper.h"
@@ -79,17 +78,6 @@ ADataCapture::ADataCapture()
 	SceneCenter = FVector::ZeroVector;
 	InitialFOV = 90.0f;
 	ExposureBiasOverride = 0.0f;  // Neutral by default - Python sets per time-of-day state
-
-	// FOV frustum visualizer — always visible in editor (not just when selected)
-	FrustumVis = CreateDefaultSubobject<UDrawFrustumComponent>(TEXT("FrustumVis"));
-	FrustumVis->SetupAttachment(CaptureComponent);
-	FrustumVis->FrustumAngle    = 90.0f;     // Matches InitialFOV
-	FrustumVis->FrustumAspectRatio = 16.0f / 9.0f;
-	FrustumVis->FrustumStartDist = 10.0f;    // Near clip (cm)
-	FrustumVis->FrustumEndDist   = 5000.0f;  // Draw out to 50 m
-	FrustumVis->bIsEditorOnly    = true;      // Strip from cooked/packaged builds
-	FrustumVis->bHiddenInGame    = true;      // Only in editor
-	FrustumVis->SetIsVisualizationComponent(false);  // Always visible, not just when selected
 }
 
 void ADataCapture::BeginPlay()
@@ -116,12 +104,6 @@ void ADataCapture::BeginPlay()
 void ADataCapture::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-
-	// Keep frustum FOV in sync with the capture component
-	if (FrustumVis && CaptureComponent)
-	{
-		FrustumVis->FrustumAngle = CaptureComponent->FOVAngle;
-	}
 }
 
 void ADataCapture::SetResolution(int32 Width, int32 Height)
