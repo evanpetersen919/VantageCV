@@ -108,6 +108,10 @@ private:
 	UPROPERTY()
 	class USceneCaptureComponent2D* CaptureComponent;
 
+	/** FOV frustum visualizer — always visible in editor viewport */
+	UPROPERTY()
+	class UDrawFrustumComponent* FrustumVis;
+
 	/** Render target for capturing images */
 	UPROPERTY()
 	UTextureRenderTarget2D* RenderTarget;
