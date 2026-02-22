@@ -14,6 +14,7 @@ VEHICLE CATEGORY CONSTRAINTS:
 - Trucks: Parking slots OR road lanes
 """
 import sys
+import math
 import time
 from pathlib import Path
 from typing import Dict, Any, List
@@ -27,6 +28,7 @@ from vantagecv.research_v2.prop_zone_controller import PropZoneController
 from vantagecv.research_v2.time_augmentation_controller import TimeAugmentationController
 from vantagecv.research_v2.weather_augmentation_controller import WeatherAugmentationController
 from vantagecv.research_v2.dashcam_camera import (
+    DashcamPlacement,
     compute_dashcam_placement,
     filter_vehicles_for_dashcam,
 )
@@ -456,6 +458,376 @@ def filter_anchors_by_location(anchors: Dict[str, List], location: int) -> Dict[
 
 
 # =============================================================================
+# CAMERA BOUNDARY DETECTION
+# =============================================================================
+
+def get_camera_spawn_bounds(host="127.0.0.1", port=30010,
+                            level_path="/Game/automobileV2.automobileV2",
+                            actor="DataCapture_2"):
+    """
+    Query the 4 boundary cubes on the DataCapture actor.
+    Returns (x_min, x_max, y_min, y_max) in world-space cm,
+    or None if detection fails.
+    
+    The DataCapture actor has 4 static meshes (Cube, Cube1, Cube2, Cube3)
+    whose positions define the region where vehicles should spawn.
+    """
+    import requests
+    base_url = f"http://{host}:{port}/remote"
+    s = requests.Session()
+    s.headers.update({"Content-Type": "application/json"})
+    
+    path = f"{level_path}:PersistentLevel.{actor}"
+    
+    # Get all StaticMeshComponents
+    try:
+        r = s.put(f"{base_url}/object/call", json={
+            "objectPath": path,
+            "functionName": "GetComponentsByClass",
+            "parameters": {"ComponentClass": "/Script/Engine.StaticMeshComponent"}
+        }, timeout=5)
+        if r.status_code != 200:
+            print(f"  [WARN] Failed to query {actor} components")
+            return None
+    except Exception as e:
+        print(f"  [WARN] Could not reach UE5: {e}")
+        return None
+    
+    comps = r.json().get("ReturnValue", [])
+    
+    # Collect world positions of boundary cubes (skip StaticMeshComponent_0 = root mesh)
+    cube_positions = []
+    for c in comps:
+        name = c.split(".")[-1] if "." in c else c
+        if not name.startswith("Cube"):
+            continue
+        try:
+            lr = s.put(f"{base_url}/object/call", json={
+                "objectPath": c,
+                "functionName": "K2_GetComponentLocation"
+            }, timeout=3)
+            if lr.status_code == 200:
+                loc = lr.json().get("ReturnValue", {})
+                cube_positions.append({
+                    "name": name,
+                    "X": loc.get("X", 0),
+                    "Y": loc.get("Y", 0),
+                })
+        except:
+            continue
+    
+    if len(cube_positions) < 2:
+        print(f"  [WARN] Only found {len(cube_positions)} boundary cubes on {actor}")
+        return None
+    
+    xs = [p["X"] for p in cube_positions]
+    ys = [p["Y"] for p in cube_positions]
+    bounds = (min(xs), max(xs), min(ys), max(ys))
+    
+    print(f"  Camera spawn bounds: X=[{bounds[0]:.0f}, {bounds[1]:.0f}], "
+          f"Y=[{bounds[2]:.0f}, {bounds[3]:.0f}]")
+    for p in cube_positions:
+        print(f"    {p['name']}: X={p['X']:.0f}, Y={p['Y']:.0f}")
+    
+    return bounds
+
+
+def filter_vehicles_by_camera_bounds(spawned_vehicles, spawner, bounds):
+    """
+    DEPRECATED — replaced by filter_anchor_config_by_camera_bounds.
+    Kept as safety net only.
+    """
+    x_min, x_max, y_min, y_max = bounds
+    kept = []
+    hidden = 0
+
+    for v in spawned_vehicles:
+        loc = v.spawn_location
+        vx = loc.get("X", 0)
+        vy = loc.get("Y", 0)
+
+        if x_min <= vx <= x_max and y_min <= vy <= y_max:
+            kept.append(v)
+        else:
+            spawner._set_actor_hidden(v.name, True)
+            print(f"    [BOUNDS HIDE] {v.name}: X={vx:.0f}, Y={vy:.0f} outside camera bounds")
+            hidden += 1
+
+    if hidden > 0:
+        print(f"  Camera bounds filter: {len(kept)} kept, {hidden} hidden")
+
+    return kept
+
+
+def compute_lane_end_cameras(spawner, dashcam_height=150.0, dashcam_fov=90.0,
+                              dashcam_pitch=-3.0):
+    """
+    Build a list of camera placements — one per lane endpoint.
+    
+    For each lane, uses the vehicle_yaw to determine which endpoint is
+    "behind" (where a dashcam driver would enter the lane). The camera
+    is placed at that endpoint, looking along the lane.
+    
+    Returns:
+        List of (CameraPlacement, lane_id, yaw) tuples
+    """
+    from vantagecv.research_v2.smart_camera_capture_controller import CameraPlacement
+    
+    lanes = spawner._get_lane_definitions()
+    if not lanes:
+        print("  [WARN] No lanes for camera positions")
+        return []
+    
+    cameras = []
+    for lane in lanes:
+        yaw = lane.get('vehicle_yaw')
+        if yaw is None:
+            # Fallback: compute yaw from start→end direction
+            if 'start_position' in lane and 'end_position' in lane:
+                dx = lane['end_position'][0] - lane['start_position'][0]
+                dy = lane['end_position'][1] - lane['start_position'][1]
+                yaw = math.degrees(math.atan2(dy, dx))
+            else:
+                continue
+        
+        fx = math.cos(math.radians(yaw))
+        fy = math.sin(math.radians(yaw))
+        
+        # Get both endpoints
+        if 'start_position' not in lane or 'end_position' not in lane:
+            continue
+        sp = lane['start_position']
+        ep = lane['end_position']
+        
+        # "Behind" endpoint = the one with lower dot product along forward
+        # (farther back in the direction the camera faces)
+        start_dot = sp[0] * fx + sp[1] * fy
+        end_dot = ep[0] * fx + ep[1] * fy
+        
+        if start_dot <= end_dot:
+            cam_pos = sp  # Start is farther back → camera goes here
+        else:
+            cam_pos = ep  # End is farther back → camera goes here
+        
+        placement = CameraPlacement(
+            location={"X": cam_pos[0], "Y": cam_pos[1], "Z": cam_pos[2] + dashcam_height},
+            rotation={"Pitch": dashcam_pitch, "Yaw": yaw, "Roll": 0.0},
+            fov=dashcam_fov,
+            target_centroid={
+                "X": cam_pos[0] + fx * 2000,
+                "Y": cam_pos[1] + fy * 2000,
+                "Z": cam_pos[2] + dashcam_height,
+            },
+        )
+        
+        lane_id = lane.get('id', '?')
+        print(f"    {lane_id}: pos=({cam_pos[0]:.0f}, {cam_pos[1]:.0f}), yaw={yaw:.0f}°")
+        cameras.append((placement, lane_id, yaw))
+    
+    print(f"  Total camera positions: {len(cameras)}")
+    return cameras
+
+
+def _segment_overlaps_box(sx, sy, ex, ey, x_min, x_max, y_min, y_max):
+    """Check if a line segment (sx,sy)→(ex,ey) overlaps an AABB."""
+    seg_x_min, seg_x_max = min(sx, ex), max(sx, ex)
+    seg_y_min, seg_y_max = min(sy, ey), max(sy, ey)
+    return (seg_x_max >= x_min and seg_x_min <= x_max and
+            seg_y_max >= y_min and seg_y_min <= y_max)
+
+
+def _clamp_segment_to_box(sx, sy, sz, ex, ey, ez, x_min, x_max, y_min, y_max):
+    """Clamp a 3D line segment so both endpoints are within an AABB (X/Y only).
+    
+    Uses parametric clipping: finds the t-range [t0, t1] where the segment
+    is inside the box, then returns the clamped start/end positions.
+    Returns None if the segment doesn't intersect the box at all.
+    """
+    dx = ex - sx
+    dy = ey - sy
+    dz = ez - sz
+    
+    t0, t1 = 0.0, 1.0
+    
+    for p, d, lo, hi in [(sx, dx, x_min, x_max), (sy, dy, y_min, y_max)]:
+        if abs(d) < 1e-6:
+            # Segment is parallel to this axis
+            if p < lo or p > hi:
+                return None  # Entirely outside
+        else:
+            t_enter = (lo - p) / d
+            t_exit = (hi - p) / d
+            if t_enter > t_exit:
+                t_enter, t_exit = t_exit, t_enter
+            t0 = max(t0, t_enter)
+            t1 = min(t1, t_exit)
+            if t0 > t1:
+                return None  # No overlap
+    
+    # Compute clamped endpoints
+    new_sx = sx + t0 * dx
+    new_sy = sy + t0 * dy
+    new_sz = sz + t0 * dz
+    new_ex = sx + t1 * dx
+    new_ey = sy + t1 * dy
+    new_ez = sz + t1 * dz
+    
+    return ([new_sx, new_sy, new_sz], [new_ex, new_ey, new_ez])
+
+
+def filter_anchor_config_by_camera_bounds(spawner, bounds):
+    """Filter anchor config to only zones within the camera boundary cubes.
+    
+    This ensures vehicles can ONLY spawn inside the camera bounds,
+    rather than spawning anywhere and getting filtered afterwards.
+    
+    Args:
+        spawner: VehicleSpawnController with anchor_config loaded
+        bounds: (x_min, x_max, y_min, y_max) from get_camera_spawn_bounds
+    
+    Returns:
+        Filtered anchor config dict (also sets spawner.anchor_config)
+    """
+    if not spawner.anchor_config or not bounds:
+        return spawner.anchor_config
+    
+    x_min, x_max, y_min, y_max = bounds
+    filtered_config = {}
+    
+    # ---------- Parking anchors ----------
+    if 'parking' in spawner.anchor_config:
+        parking_section = spawner.anchor_config['parking'].copy()
+        anchors = parking_section.get('anchors', [])
+        
+        original = len(anchors)
+        filtered_parking = []
+        for anchor in anchors:
+            if isinstance(anchor, dict):
+                if 'position' in anchor:
+                    ax, ay = anchor['position'][0], anchor['position'][1]
+                    if x_min <= ax <= x_max and y_min <= ay <= y_max:
+                        filtered_parking.append(anchor)
+                else:
+                    transform = spawner._get_anchor_transform(anchor.get('name'))
+                    if transform:
+                        ax = transform['location'].get('X', 0)
+                        ay = transform['location'].get('Y', 0)
+                        if x_min <= ax <= x_max and y_min <= ay <= y_max:
+                            filtered_parking.append(anchor)
+            else:
+                transform = spawner._get_anchor_transform(anchor)
+                if transform:
+                    ax = transform['location'].get('X', 0)
+                    ay = transform['location'].get('Y', 0)
+                    if x_min <= ax <= x_max and y_min <= ay <= y_max:
+                        filtered_parking.append(anchor)
+        
+        parking_section['anchors'] = filtered_parking
+        filtered_config['parking'] = parking_section
+        print(f"  Parking: {original} → {len(filtered_parking)} within camera bounds")
+    
+    # ---------- Lanes (clamp endpoints to bounds) ----------
+    if 'lanes' in spawner.anchor_config:
+        lanes_section = spawner.anchor_config['lanes'].copy()
+        lane_defs = lanes_section.get('definitions', [])
+        
+        original = len(lane_defs)
+        filtered_lanes = []
+        for lane in lane_defs:
+            if 'start_position' in lane and 'end_position' in lane:
+                sp = lane['start_position']
+                ep = lane['end_position']
+                clamped = _clamp_segment_to_box(
+                    sp[0], sp[1], sp[2], ep[0], ep[1], ep[2],
+                    x_min, x_max, y_min, y_max
+                )
+                if clamped:
+                    new_lane = dict(lane)
+                    new_lane['start_position'] = list(clamped[0])
+                    new_lane['end_position'] = list(clamped[1])
+                    filtered_lanes.append(new_lane)
+                    print(f"    {lane.get('id','?')}: "
+                          f"({sp[0]:.0f},{sp[1]:.0f})→({ep[0]:.0f},{ep[1]:.0f}) "
+                          f"clamped to ({clamped[0][0]:.0f},{clamped[0][1]:.0f})→"
+                          f"({clamped[1][0]:.0f},{clamped[1][1]:.0f})")
+            elif 'start_position' in lane:
+                sx, sy = lane['start_position'][0], lane['start_position'][1]
+                if x_min <= sx <= x_max and y_min <= sy <= y_max:
+                    filtered_lanes.append(lane)
+            else:
+                start_name = lane.get('start_anchor') or lane.get('start')
+                if start_name:
+                    transform = spawner._get_anchor_transform(start_name)
+                    if transform:
+                        sx = transform['location'].get('X', 0)
+                        sy = transform['location'].get('Y', 0)
+                        if x_min <= sx <= x_max and y_min <= sy <= y_max:
+                            filtered_lanes.append(lane)
+        
+        lanes_section['definitions'] = filtered_lanes
+        filtered_config['lanes'] = lanes_section
+        print(f"  Lanes: {original} → {len(filtered_lanes)} within camera bounds")
+    
+    # ---------- Sidewalks (clamp to bounds) ----------
+    if 'sidewalks' in spawner.anchor_config:
+        sidewalks_section = spawner.anchor_config['sidewalks'].copy()
+        sidewalk_defs = sidewalks_section.get('definitions', [])
+        
+        original = len(sidewalk_defs)
+        filtered_sidewalks = []
+        for sw in sidewalk_defs:
+            if 'position_1' in sw and 'position_2' in sw:
+                p1 = sw['position_1']
+                p2 = sw['position_2']
+                clamped = _clamp_segment_to_box(
+                    p1[0], p1[1], p1[2], p2[0], p2[1], p2[2],
+                    x_min, x_max, y_min, y_max
+                )
+                if clamped:
+                    new_sw = dict(sw)
+                    new_sw['position_1'] = list(clamped[0])
+                    new_sw['position_2'] = list(clamped[1])
+                    filtered_sidewalks.append(new_sw)
+                    print(f"    {sw.get('id','?')}: "
+                          f"({p1[0]:.0f},{p1[1]:.0f})→({p2[0]:.0f},{p2[1]:.0f}) "
+                          f"clamped to ({clamped[0][0]:.0f},{clamped[0][1]:.0f})→"
+                          f"({clamped[1][0]:.0f},{clamped[1][1]:.0f})")
+            elif 'position_1' in sw:
+                sx, sy = sw['position_1'][0], sw['position_1'][1]
+                if x_min <= sx <= x_max and y_min <= sy <= y_max:
+                    filtered_sidewalks.append(sw)
+            else:
+                anchor_name = sw.get('anchor_1')
+                if anchor_name:
+                    transform = spawner._get_anchor_transform(anchor_name)
+                    if transform:
+                        sx = transform['location'].get('X', 0)
+                        sy = transform['location'].get('Y', 0)
+                        if x_min <= sx <= x_max and y_min <= sy <= y_max:
+                            filtered_sidewalks.append(sw)
+        
+        sidewalks_section['definitions'] = filtered_sidewalks
+        filtered_config['sidewalks'] = sidewalks_section
+        print(f"  Sidewalks: {original} → {len(filtered_sidewalks)} within camera bounds")
+    
+    # ---------- Sidewalk (singular, old format) ----------
+    elif 'sidewalk' in spawner.anchor_config:
+        sw = spawner.anchor_config['sidewalk']
+        anchor_name = sw.get('anchor_1')
+        if anchor_name:
+            transform = spawner._get_anchor_transform(anchor_name)
+            if transform:
+                sx = transform['location'].get('X', 0)
+                sy = transform['location'].get('Y', 0)
+                if x_min <= sx <= x_max and y_min <= sy <= y_max:
+                    filtered_config['sidewalk'] = sw
+    
+    # Apply to spawner
+    spawner.anchor_config = filtered_config
+    return filtered_config
+
+
+# =============================================================================
 # VEHICLE SPAWNING WITH ZONE CONSTRAINTS
 # =============================================================================
 
@@ -772,6 +1144,21 @@ def main():
     print(f"  Rain System: {weather_controller.rain_system or 'NOT FOUND'}")
     print(f"  Available weather: {', '.join(weather_controller.get_available_states())}")
     
+    # Detect camera spawn bounds from boundary cubes and pre-filter anchors
+    print("\nDetecting camera spawn bounds...")
+    camera_bounds = get_camera_spawn_bounds()
+    if camera_bounds:
+        print("\nFiltering spawn anchors to camera bounds...")
+        filter_anchor_config_by_camera_bounds(spawner, camera_bounds)
+    else:
+        print("WARNING: Could not detect camera spawn bounds - vehicles may spawn outside camera view")
+    
+    # Build camera positions from lane endpoints (one per lane)
+    print("\nBuilding lane-end camera positions...")
+    lane_cameras = compute_lane_end_cameras(spawner)
+    if not lane_cameras:
+        print("WARNING: No lane-end camera positions found — falling back to dashcam")
+    
     # Print vehicle zone constraints
     print(f"\nVehicle Zone Constraints:")
     for cat, zones in VEHICLE_ZONE_CONSTRAINTS.items():
@@ -871,31 +1258,50 @@ def main():
                 
                 print(f"  Vehicles spawned: {len(spawned_vehicles)}")
                 
+                # Step 3b: Safety-net — hide any vehicle that landed outside bounds
+                if camera_bounds and spawned_vehicles:
+                    spawned_vehicles = filter_vehicles_by_camera_bounds(
+                        spawned_vehicles, spawner, camera_bounds
+                    )
+                
                 if not spawned_vehicles:
-                    print(f"  ✗ No vehicles spawned")
+                    print(f"  ✗ No vehicles spawned (or all outside bounds)")
                     failed += 1
                     continue
                 
-                # Step 4: Dashcam placement + spatial filter
-                #   - Pick a random lane for the camera
-                #   - Hide vehicles that violate dashcam spatial rules
-                dashcam = compute_dashcam_placement(spawner, seed=seed + 9000)
+                # Step 4: Camera placement — cycle through lane endpoints
                 camera_placement = None
-                if dashcam:
-                    print(f"  Dashcam: lane={dashcam.lane_id}, "
-                          f"yaw={dashcam.rotation['Yaw']:.1f}°")
+                if lane_cameras:
+                    cam_idx = i % len(lane_cameras)
+                    camera_placement, cam_lane_id, cam_yaw = lane_cameras[cam_idx]
+                    print(f"  Camera: {cam_lane_id} ({cam_idx+1}/{len(lane_cameras)}), "
+                          f"pos=({camera_placement.location['X']:.0f}, "
+                          f"{camera_placement.location['Y']:.0f}), "
+                          f"yaw={camera_placement.rotation['Yaw']:.0f}°")
+                    
+                    # Apply dashcam spatial filter using this camera position
+                    yaw_rad = math.radians(cam_yaw)
+                    fx = math.cos(yaw_rad)
+                    fy = math.sin(yaw_rad)
+                    dashcam = DashcamPlacement(
+                        location=camera_placement.location,
+                        rotation=camera_placement.rotation,
+                        fov=camera_placement.fov,
+                        lane_id=cam_lane_id,
+                        lane_forward=(fx, fy),
+                        lane_right=(math.sin(yaw_rad), -math.cos(yaw_rad)),
+                        lane_width_cm=400.0,
+                    )
                     filter_result = filter_vehicles_for_dashcam(
                         dashcam, spawned_vehicles, spawner
                     )
-                    camera_placement = dashcam.to_camera_placement()
                     
-                    # Check that at least one vehicle survived filtering
                     if not filter_result.kept_vehicles:
                         print(f"  ✗ All vehicles filtered out by dashcam rules")
                         failed += 1
                         continue
                 else:
-                    print("  [WARN] No dashcam placement — falling back to orbit camera")
+                    print("  [WARN] No lane cameras — falling back to orbit camera")
                 
                 # Step 5: Spawn props with same seed
                 prop_result = prop_controller.spawn_all(seed=seed, spawn_chance=0.2)
