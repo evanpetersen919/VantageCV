@@ -10,7 +10,7 @@
 
 #include "DataCapture.h"
 #include "Components/SceneCaptureComponent2D.h"
-#include "Components/DrawFrustumComponent.h"
+#include "DrawDebugHelpers.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "ImageUtils.h"
 #include "IImageWrapper.h"
@@ -75,15 +75,6 @@ ADataCapture::ADataCapture()
 	}
 
 	
-	// Debug frustum — editor-only FOV visualizer
-	DebugFrustum = CreateDefaultSubobject<UDrawFrustumComponent>(TEXT("DebugFrustum"));
-	DebugFrustum->SetupAttachment(CaptureComponent);
-	DebugFrustum->FrustumAngle = 90.0f;           // Matches InitialFOV
-	DebugFrustum->FrustumAspectRatio = 1.7778f;   // 16:9
-	DebugFrustum->FrustumStartDist = 10.0f;       // Near clip (cm)
-	DebugFrustum->FrustumEndDist = 5000.0f;       // Draw frustum out to 50 m
-	DebugFrustum->bHiddenInGame = true;            // Editor only
-
 	// Initialize scene center to zero (will be set in BeginPlay)
 	SceneCenter = FVector::ZeroVector;
 	InitialFOV = 90.0f;
@@ -114,6 +105,20 @@ void ADataCapture::BeginPlay()
 void ADataCapture::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+
+#if WITH_EDITOR
+	// Always draw FOV frustum in editor so you can see exactly what DataCapture will capture
+	if (GetWorld() && GetWorld()->WorldType == EWorldType::Editor && CaptureComponent)
+	{
+		const FVector  Loc = GetActorLocation();
+		const FRotator Rot = GetActorRotation();
+		const float    FOV = CaptureComponent->FOVAngle;
+		// DrawDebugCamera draws the camera body + FOV frustum cone
+		DrawDebugCamera(GetWorld(), Loc, Rot, FOV,
+			/*Scale=*/1.0f, FColor::Cyan,
+			/*bPersistentLines=*/false, /*LifeTime=*/-1.0f);
+	}
+#endif
 }
 
 void ADataCapture::SetResolution(int32 Width, int32 Height)
@@ -237,12 +242,6 @@ bool ADataCapture::CaptureFrame(const FString& OutputPath, int32 Width, int32 He
 	// Assign render target to capture component
 	CaptureComponent->TextureTarget = RenderTarget;
 	
-	// Sync debug frustum to current capture FOV so editor overlay stays accurate
-	if (DebugFrustum)
-	{
-		DebugFrustum->FrustumAngle = CaptureComponent->FOVAngle;
-	}
-
 	// Log camera transform for debugging
 	FVector ActorLoc = GetActorLocation();
 	FRotator ActorRot = GetActorRotation();

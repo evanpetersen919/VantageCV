@@ -105,10 +105,6 @@ private:
 	UPROPERTY()
 	class USceneCaptureComponent2D* CaptureComponent;
 
-	/** Debug frustum — shows capture FOV cone in editor viewport, hidden at runtime */
-	UPROPERTY()
-	class UDrawFrustumComponent* DebugFrustum;
-
 	/** Render target for capturing images */
 	UPROPERTY()
 	UTextureRenderTarget2D* RenderTarget;
