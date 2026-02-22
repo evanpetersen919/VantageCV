@@ -1182,13 +1182,20 @@ def main():
     print(f"  Rain System: {weather_controller.rain_system or 'NOT FOUND'}")
     print(f"  Available weather: {', '.join(weather_controller.get_available_states())}")
     
-    # Detect camera spawn bounds from boundary cubes and pre-filter anchors
+    # Detect camera spawn bounds from boundary cubes and pre-filter anchors.
+    # Skip when TEST_LOCATION is set: location filtering already constrains anchors
+    # to the correct Y range, and the boundary cubes reflect DataCapture_2's *initial*
+    # position (not the target location), which would incorrectly filter out all lanes.
     print("\nDetecting camera spawn bounds...")
     camera_bounds = get_camera_spawn_bounds()
     if camera_bounds:
-        print("\nFiltering spawn anchors to camera bounds...")
-        filter_anchor_config_by_camera_bounds(spawner, camera_bounds)
-        set_camera_bounds_visibility(False)
+        if TEST_LOCATION is not None:
+            print(f"  Skipping camera-bounds anchor filter (location {TEST_LOCATION} filter already applied)")
+            set_camera_bounds_visibility(False)
+        else:
+            print("\nFiltering spawn anchors to camera bounds...")
+            filter_anchor_config_by_camera_bounds(spawner, camera_bounds)
+            set_camera_bounds_visibility(False)
     else:
         print("WARNING: Could not detect camera spawn bounds - vehicles may spawn outside camera view")
     
@@ -1297,8 +1304,11 @@ def main():
                 
                 print(f"  Vehicles spawned: {len(spawned_vehicles)}")
                 
-                # Step 3b: Safety-net — hide any vehicle that landed outside bounds
-                if camera_bounds and spawned_vehicles:
+                # Step 3b: Safety-net — hide any vehicle that landed outside bounds.
+                # Skip when TEST_LOCATION is set: camera_bounds reflects DataCapture_2's
+                # initial position (not target location), so it would incorrectly filter
+                # out all vehicles spawned in the target location.
+                if camera_bounds and spawned_vehicles and TEST_LOCATION is None:
                     spawned_vehicles = filter_vehicles_by_camera_bounds(
                         spawned_vehicles, spawner, camera_bounds
                     )

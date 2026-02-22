@@ -623,7 +623,7 @@ class SmartCameraCaptureController:
         logger.info("\n--- Step 2: Vehicle Discovery ---")
         vehicles = self._get_visible_vehicles()
         
-        if not vehicles:
+        if not vehicles and camera_override is None:
             logger.warning("No visible vehicles found")
             return CaptureResult(
                 status=CaptureStatus.FAILED_VISIBILITY,
@@ -651,6 +651,16 @@ class SmartCameraCaptureController:
                     failure_reason="Failed to set camera_override transform",
                 )
             best_placement = camera_override
+            
+            # Re-discover vehicles AFTER moving camera (they may be at a different location)
+            vehicles = self._get_visible_vehicles()
+            if not vehicles:
+                logger.warning("No visible vehicles found after camera move")
+                return CaptureResult(
+                    status=CaptureStatus.FAILED_VISIBILITY,
+                    failure_reason="No visible vehicles in scene"
+                )
+            
             best_visibility = self._validate_visibility(vehicles, camera_override)
         else:
             # ---- Default: orbit-based camera placement ----
