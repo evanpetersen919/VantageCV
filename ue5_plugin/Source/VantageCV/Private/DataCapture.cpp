@@ -87,7 +87,7 @@ ADataCapture::ADataCapture()
 	FrustumVis->FrustumAspectRatio = 16.0f / 9.0f;
 	FrustumVis->FrustumStartDist = 10.0f;    // Near clip (cm)
 	FrustumVis->FrustumEndDist   = 5000.0f;  // Draw out to 50 m
-	FrustumVis->bFrustumEnabled  = true;
+	FrustumVis->bIsEditorOnly    = true;      // Strip from cooked/packaged builds
 	FrustumVis->bHiddenInGame    = true;      // Only in editor
 	FrustumVis->SetIsVisualizationComponent(false);  // Always visible, not just when selected
 }
