@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 # Visibility thresholds
-MIN_VISIBILITY_PERCENTAGE = 30.0  # Each vehicle must be at least 30% visible
+MIN_VISIBILITY_PERCENTAGE = 50.0  # Each vehicle must be at least 50% visible
 MAX_CAMERA_RETRIES = 5  # Maximum camera placement attempts
 
 # Camera presets by vehicle count

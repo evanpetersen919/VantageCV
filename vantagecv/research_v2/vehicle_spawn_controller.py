@@ -565,7 +565,8 @@ class VehicleSpawnController:
         return loc_result is not None and rot_result is not None
     
     def spawn_parking(self, seed: int, count: int = 3, 
-                     vehicle_types: List[str] = None) -> SpawnResult:
+                     vehicle_types: List[str] = None,
+                     position_filter=None) -> SpawnResult:
         """
         Spawn vehicles in parking slots
         
@@ -573,6 +574,8 @@ class VehicleSpawnController:
             seed: Random seed for determinism
             count: Number of vehicles to spawn
             vehicle_types: List of vehicle categories to use (default: cars only)
+            position_filter: Optional callable(location_dict) -> bool.
+                            If provided, only spawn at positions where this returns True.
         """
         random.seed(seed)
         
@@ -598,16 +601,18 @@ class VehicleSpawnController:
         random.shuffle(anchors)
         random.shuffle(available)
         
-        # Spawn vehicles
+        # Spawn vehicles — iterate all anchors, pick first `count` that pass filters
         spawned = []
-        anchors_to_use = anchors[:count]
+        vehicle_idx = 0
         
-        for i, anchor_name in enumerate(anchors_to_use):
-            if i >= len(available):
+        for anchor_name in anchors:
+            if len(spawned) >= count:
+                break
+            if vehicle_idx >= len(available):
                 logger.warning(f"Not enough vehicles in pool for all anchors")
                 break
             
-            vehicle = available[i]
+            vehicle = available[vehicle_idx]
             vehicle_name = vehicle["name"]
             category = vehicle["category"]
             
@@ -631,6 +636,11 @@ class VehicleSpawnController:
             
             location["X"] += random.uniform(-jitter, jitter)
             location["Y"] += random.uniform(-jitter, jitter)
+            
+            # Check position filter (camera view)
+            if position_filter and not position_filter(location):
+                logger.info(f"  [SKIP] {anchor_name} not in camera view")
+                continue
             
             # Parking rotation: start with vehicle's default, ADD anchor direction
             yaw_offset = anchor_yaw
@@ -669,6 +679,7 @@ class VehicleSpawnController:
             
             spawned.append(instance)
             self.spawned_vehicles.append(instance)
+            vehicle_idx += 1
             
             logger.info(f"  ✓ {vehicle_name} ({category}) → {anchor_name}")
         
@@ -681,7 +692,8 @@ class VehicleSpawnController:
     
     def spawn_lane(self, seed: int, count: int = 2,
                    vehicle_types: List[str] = None,
-                   existing_bounds: List[VehicleBounds] = None) -> SpawnResult:
+                   existing_bounds: List[VehicleBounds] = None,
+                   position_filter=None) -> SpawnResult:
         """
         Spawn vehicles in road lanes
         
@@ -691,6 +703,8 @@ class VehicleSpawnController:
             vehicle_types: List of vehicle categories to use (default: cars only)
             existing_bounds: List of VehicleBounds from previously spawned vehicles
                             (used to check collisions with already-spawned vehicles)
+            position_filter: Optional callable(location_dict) -> bool.
+                            If provided, only spawn at positions where this returns True.
         """
         random.seed(seed)
         
@@ -748,8 +762,8 @@ class VehicleSpawnController:
             category = vehicle["category"]
             current_space = SPACE_VALUE.get(category, 1000)
             
-            # Try to find non-overlapping position
-            max_attempts = 20
+            # Try to find non-overlapping position (more attempts when position_filter active)
+            max_attempts = 40 if position_filter else 20
             for attempt in range(max_attempts):
                 # Pick random lane
                 lane = random.choice(lanes)
@@ -801,6 +815,12 @@ class VehicleSpawnController:
                 rotation["Yaw"] = vehicle_default_yaw + lane_yaw
                 yaw_jitter_amount = random.uniform(-yaw_jitter, yaw_jitter)
                 rotation["Yaw"] += yaw_jitter_amount
+                
+                # Check position filter (camera view)
+                if position_filter and not position_filter(location):
+                    if attempt == max_attempts - 1:
+                        print(f"            [VIEW] {category} position not in camera view on {lane_id}")
+                    continue
                 
                 # NEW: Check collision using boundary mesh system
                 # Lanes are NOT parking spots, so collision checking is REQUIRED
@@ -940,7 +960,8 @@ class VehicleSpawnController:
         )
     
     def spawn_sidewalk(self, seed: int, count: int = 3,
-                      vehicle_types: List[str] = None) -> SpawnResult:
+                      vehicle_types: List[str] = None,
+                      position_filter=None) -> SpawnResult:
         """
         Spawn vehicles (bicycles) randomly within sidewalk bounds.
                 ANCHOR USAGE:
@@ -1031,7 +1052,7 @@ class VehicleSpawnController:
             current_spacing_mult = SPACING_MULTIPLIER.get(category, 1.0)
             
             # Try to find non-overlapping position along centerline
-            max_attempts = 20
+            max_attempts = 40 if position_filter else 20
             for attempt in range(max_attempts):
                 # Random position along centerline (0.0 = anchor1, 1.0 = anchor2)
                 t = random.uniform(0.1, 0.9)  # Avoid endpoints
@@ -1055,6 +1076,12 @@ class VehicleSpawnController:
                     x = loc1["X"] + t * dx
                     y = loc1["Y"] + t * dy
                     z = loc1["Z"] + t * (loc2["Z"] - loc1["Z"])
+                    
+                    # Check position filter (camera view)
+                    if position_filter and not position_filter({"X": x, "Y": y, "Z": z}):
+                        if attempt == max_attempts - 1:
+                            print(f"                [VIEW] sidewalk position not in camera view")
+                        continue
                     
                     # VALIDATION: Verify position is on line segment
                     # Compute actual distance from centerline

@@ -33,6 +33,7 @@ from vantagecv.research_v2.dashcam_camera import (
     compute_dashcam_placement,
     filter_vehicles_for_dashcam,
 )
+from vantagecv.research_v2.smart_camera_capture_controller import MIN_VISIBILITY_PERCENTAGE
 
 
 # =============================================================================
@@ -73,6 +74,52 @@ def overlay_vehicle_info(image_path: str, vehicles, seed: int = 0):
         img.save(image_path)
     except Exception as e:
         print(f"  [WARN] Could not overlay vehicle info: {e}")
+
+
+# =============================================================================
+# CAMERA VIEW FILTER
+# =============================================================================
+
+def make_camera_view_filter(camera_placement, camera_yaw: float, fov: float = 90.0,
+                            min_dist: float = 300.0, max_dist: float = None,
+                            min_ahead: float = 200.0):
+    """
+    Return a callable(location_dict) -> bool that accepts only positions
+    within the camera's forward FOV cone, between min_dist and max_dist.
+
+    max_dist defaults to the distance at which the visibility model drops to
+    MIN_VISIBILITY_PERCENTAGE, so every spawned vehicle is guaranteed to pass
+    the capture controller's visibility check:
+        visibility = 100 - (dist - 3000) / 50  →  dist_max = 3000 + (100 - threshold) * 50
+    """
+    if max_dist is None:
+        # Compute the furthest distance where visibility >= MIN_VISIBILITY_PERCENTAGE.
+        # visibility formula: max(0, 100 - (dist - 3000) / 50)  for dist > 3000
+        max_dist = 3000.0 + (100.0 - MIN_VISIBILITY_PERCENTAGE) * 50.0  # 5500cm at 50%
+    cam_x = camera_placement.location['X']
+    cam_y = camera_placement.location['Y']
+    yaw_rad = math.radians(camera_yaw)
+    fx = math.cos(yaw_rad)
+    fy = math.sin(yaw_rad)
+    half_fov = fov / 2.0
+
+    def _accept(location):
+        rel_x = location.get('X', 0) - cam_x
+        rel_y = location.get('Y', 0) - cam_y
+        forward_dist = rel_x * fx + rel_y * fy
+        if forward_dist < min_ahead:
+            return False
+        dist = math.sqrt(rel_x * rel_x + rel_y * rel_y)
+        if dist < min_dist or dist > max_dist:
+            return False
+        # FOV angle check
+        dot = forward_dist / dist  # == cos(angle)
+        angle = math.degrees(math.acos(max(-1.0, min(1.0, dot))))
+        if angle > half_fov:
+            return False
+        return True
+
+    return _accept
 
 
 # =============================================================================
@@ -920,7 +967,8 @@ def spawn_vehicles_with_constraints(
     seed: int,
     vehicle_count: int,
     parking_ratio: float,
-    stats: SpawnStats
+    stats: SpawnStats,
+    position_filter=None
 ) -> List:
     """
     Spawn 1–5 vehicles total per picture.
@@ -943,6 +991,9 @@ def spawn_vehicles_with_constraints(
         parking_ratio: For cats that support both parking + lane, ratio that
                        go to parking vs lane
         stats: Statistics tracker
+        position_filter: Optional callable(location_dict) -> bool.
+                        Passed to each spawn function to restrict positions
+                        (e.g. only in camera FOV).
     
     Returns:
         List of spawned vehicle instances
@@ -1051,7 +1102,8 @@ def spawn_vehicles_with_constraints(
             parking_result = spawner.spawn_parking(
                 seed=seed + hash(cat) % 10000,
                 count=parking_count,
-                vehicle_types=[cat]
+                vehicle_types=[cat],
+                position_filter=position_filter
             )
             for v in parking_result.spawned_vehicles:
                 stats.log_success(v.category, v.name, v.anchor_name)
@@ -1064,7 +1116,8 @@ def spawn_vehicles_with_constraints(
                 seed=seed + hash(cat) % 10000 + 1000,
                 count=lane_count,
                 vehicle_types=[cat],
-                existing_bounds=lane_spawned_bounds
+                existing_bounds=lane_spawned_bounds,
+                position_filter=position_filter
             )
             for v in lane_result.spawned_vehicles:
                 stats.log_success(v.category, v.name, v.anchor_name)
@@ -1077,7 +1130,8 @@ def spawn_vehicles_with_constraints(
             sidewalk_result = spawner.spawn_sidewalk(
                 seed=seed + hash(cat) % 10000 + 3000,
                 count=sidewalk_count,
-                vehicle_types=[cat]
+                vehicle_types=[cat],
+                position_filter=position_filter
             )
             for v in sidewalk_result.spawned_vehicles:
                 stats.log_success(v.category, v.name, v.anchor_name)
@@ -1324,7 +1378,24 @@ def main():
                     continue
                 print(f"  Weather: {weather_result.weather_state}")
                 
-                # Step 3: Hide all vehicles and spawn with zone constraints
+                # Step 3: Select camera FIRST, then spawn in its view
+                #   Camera is selected before spawning so the position_filter
+                #   ensures vehicles only land in front of the camera.
+                camera_placement = None
+                cam_view_filter = None
+                cam_lane_id = None
+                cam_yaw = None
+                if lane_cameras:
+                    cam_idx = i % len(lane_cameras)
+                    camera_placement, cam_lane_id, cam_yaw = lane_cameras[cam_idx]
+                    cam_view_filter = make_camera_view_filter(
+                        camera_placement, cam_yaw, fov=camera_placement.fov)
+                    print(f"  Camera: {cam_lane_id} ({cam_idx+1}/{len(lane_cameras)}), "
+                          f"pos=({camera_placement.location['X']:.0f}, "
+                          f"{camera_placement.location['Y']:.0f}), "
+                          f"yaw={camera_placement.rotation['Yaw']:.0f}°")
+                
+                # Step 3b: Hide all vehicles and spawn with camera-aware filter
                 spawner.hide_all_vehicles()
                 
                 spawned_vehicles = spawn_vehicles_with_constraints(
@@ -1332,7 +1403,8 @@ def main():
                     seed=seed,
                     vehicle_count=vehicle_count,
                     parking_ratio=parking_ratio,
-                    stats=iter_stats
+                    stats=iter_stats,
+                    position_filter=cam_view_filter
                 )
                 
                 # Merge iteration stats into global
@@ -1345,7 +1417,7 @@ def main():
                 
                 print(f"  Vehicles spawned: {len(spawned_vehicles)}")
                 
-                # Step 3b: Safety-net — hide any vehicle that landed outside bounds.
+                # Step 3c: Safety-net — hide any vehicle that landed outside bounds.
                 # Skip when TEST_LOCATION is set: camera_bounds reflects DataCapture_2's
                 # initial position (not target location), so it would incorrectly filter
                 # out all vehicles spawned in the target location.
@@ -1355,21 +1427,15 @@ def main():
                     )
                 
                 if not spawned_vehicles:
-                    print(f"  ✗ No vehicles spawned (or all outside bounds)")
+                    print(f"  ✗ No vehicles spawned (or all outside camera view)")
                     failed += 1
                     continue
                 
-                # Step 4: Camera placement — cycle through lane endpoints
-                camera_placement = None
-                if lane_cameras:
-                    cam_idx = i % len(lane_cameras)
-                    camera_placement, cam_lane_id, cam_yaw = lane_cameras[cam_idx]
-                    print(f"  Camera: {cam_lane_id} ({cam_idx+1}/{len(lane_cameras)}), "
-                          f"pos=({camera_placement.location['X']:.0f}, "
-                          f"{camera_placement.location['Y']:.0f}), "
-                          f"yaw={camera_placement.rotation['Yaw']:.0f}°")
-                    
-                    # Apply dashcam spatial filter using this camera position
+                # Step 4: Dashcam spatial filter (safety net)
+                #   Vehicles were already spawned in-view via position_filter,
+                #   but run the dashcam filter to enforce tighter rules (same-lane
+                #   limit, beside-camera, clearance).
+                if camera_placement and cam_lane_id and cam_yaw is not None:
                     yaw_rad = math.radians(cam_yaw)
                     fx = math.cos(yaw_rad)
                     fy = math.sin(yaw_rad)
@@ -1390,7 +1456,12 @@ def main():
                         print(f"  ✗ All vehicles filtered out by dashcam rules")
                         failed += 1
                         continue
-                else:
+                    
+                    # Update spawned_vehicles to only kept vehicles so the
+                    # overlay and downstream logic reflect what's actually visible.
+                    kept_set = set(filter_result.kept_vehicles)
+                    spawned_vehicles = [v for v in spawned_vehicles if v.name in kept_set]
+                elif not lane_cameras:
                     print("  [WARN] No lane cameras — falling back to orbit camera")
                 
                 # Step 5: Spawn props with same seed
