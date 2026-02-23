@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 from typing import Dict, Any, List
 from dataclasses import dataclass, field
+from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -32,6 +33,46 @@ from vantagecv.research_v2.dashcam_camera import (
     compute_dashcam_placement,
     filter_vehicles_for_dashcam,
 )
+
+
+# =============================================================================
+# IMAGE OVERLAY
+# =============================================================================
+
+def overlay_vehicle_info(image_path: str, vehicles, seed: int = 0):
+    """Overlay spawned vehicle info as white text on the top-left corner of a captured image."""
+    try:
+        img = Image.open(image_path)
+        draw = ImageDraw.Draw(img)
+
+        # Try to use a monospace font; fall back to default
+        try:
+            font = ImageFont.truetype("consola.ttf", 18)
+        except (OSError, IOError):
+            try:
+                font = ImageFont.truetype("cour.ttf", 18)
+            except (OSError, IOError):
+                font = ImageFont.load_default()
+
+        lines = [f"Seed: {seed}  |  Vehicles: {len(vehicles)}"]
+        for v in vehicles:
+            loc = v.spawn_location
+            lines.append(
+                f"  {v.category:10} {v.name:25} "
+                f"({loc['X']:.0f}, {loc['Y']:.0f})  {v.anchor_name or ''}"
+            )
+
+        # Draw with black outline for readability, then white fill
+        x, y = 10, 10
+        for line in lines:
+            for ox, oy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
+                draw.text((x + ox, y + oy), line, fill="black", font=font)
+            draw.text((x, y), line, fill="white", font=font)
+            y += 22
+
+        img.save(image_path)
+    except Exception as e:
+        print(f"  [WARN] Could not overlay vehicle info: {e}")
 
 
 # =============================================================================
@@ -1371,6 +1412,7 @@ def main():
                 )
                 
                 if result.status.value == "SUCCESS":
+                    overlay_vehicle_info(str(output_path), spawned_vehicles, seed=seed)
                     print(f"  [OK] Captured")
                     success += 1
                 else:
