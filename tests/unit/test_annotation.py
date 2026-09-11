@@ -291,7 +291,21 @@ class TestValidateBbox:
         gen = self._gen(annotation_config_factory, camera_system_factory)
         bbox = BoundingBox2D(x=10, y=10, width=20, height=20)
         is_valid, issues = gen._validate_bbox(bbox, truncation=0.8)
-        assert not any("Truncation" in i for i in issues)
+        assert is_valid is True
+        assert issues == []
+
+    def test_size_and_out_of_frame_issues_combine(self, annotation_config_factory, camera_system_factory):
+        """A bbox that's both too small AND positioned beyond the right edge
+        must report both issues together, not short-circuit on the first."""
+        gen = self._gen(annotation_config_factory, camera_system_factory)
+        # x=100 triggers "completely outside" (camera width=100); width=5 also < min_dimension=10
+        bbox = BoundingBox2D(x=100, y=10, width=5, height=20)
+        is_valid, issues = gen._validate_bbox(bbox, truncation=0.0)
+        assert is_valid is False
+        assert issues == [
+            "Width 5.0 below minimum 10",
+            "Bbox completely outside image",
+        ]
 
     def test_bbox_starting_beyond_right_edge(self, annotation_config_factory, camera_system_factory):
         gen = self._gen(annotation_config_factory, camera_system_factory)

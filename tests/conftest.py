@@ -10,6 +10,10 @@ import random
 
 import pytest
 
+pytest_plugins = ["pytester"]  # enables the `pytester` fixture, used to test
+# the autouse fixture below in a genuinely isolated inner pytest session
+# (see test_seed_determinism.py::TestAutouseFixtureIsolatesGlobalRandomState)
+
 
 @pytest.fixture(autouse=True)
 def _isolate_global_random_state():
@@ -34,6 +38,14 @@ def camera_config_factory():
 
     Defaults match the hand-verified worked example: camera at world
     origin, fov=90 deg, 100x100 resolution -> fx=fy=cx=cy=50.0.
+
+    NOTE: these defaults (height=0.0, 100x100 resolution) are deliberately
+    NOT production-realistic -- CameraSystem.validate() would reject this
+    exact config (height < 0.5, resolution < 640x480). That's fine for the
+    projection-math tests built on this factory, but means CameraSystem's
+    own validate() needs its own dedicated tests with realistic configs
+    (see test_camera_system.py::TestValidate) rather than incidentally
+    relying on this fixture to exercise it.
     """
     from vantagecv.research_v2.config import CameraConfig
 

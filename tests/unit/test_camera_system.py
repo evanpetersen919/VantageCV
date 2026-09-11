@@ -139,6 +139,150 @@ class TestProjectBbox3dTo2d:
         assert min_v == pytest.approx(10.0)  # confirms bottom hypothesis, not center (30.0)
         assert height_px == pytest.approx(40.0)  # 50.0 (z=0) - 10.0 (z=8)
 
+    def test_partial_visibility_mixed_front_and_behind_corners(self, camera_system_factory):
+        """A vehicle straddling the camera plane (some corners behind, some
+        in front) is a realistic case for anything very close to the camera.
+        Vehicle center x=1, length=4 -> back corners at world-x=-1 (behind,
+        depth<=0 -> sentinel (-1,-1), filtered out entirely), front corners
+        at world-x=3 (in front, real u/v computed). The final bbox must be
+        built ONLY from the 4 front corners, not all 8.
+
+        Front corners (y in {-1,1}, z in {0,2}), cam_x=3:
+          u = 50*(-y/3)+50 -> y=-1: 200/3; y=1: 100/3
+          v = 50*(-z/3)+50 -> z=0: 50;      z=2: 50/3
+        Expected: (min_u, min_v, w, h) = (100/3, 50/3, 100/3, 100/3).
+        """
+        cam = camera_system_factory()
+        result = cam.project_bbox_3d_to_2d(x=1, y=0, z=0, length=4, width=2, height=2)
+        assert result == pytest.approx((100 / 3, 50 / 3, 100 / 3, 100 / 3))
+
+
+class TestIsPointInFrame:
+    def test_point_inside_frame(self, camera_system_factory):
+        cam = camera_system_factory()  # width=100, height_px=100
+        assert cam.is_point_in_frame(50.0, 50.0) is True
+
+    def test_lower_bound_zero_is_inside(self, camera_system_factory):
+        cam = camera_system_factory()
+        assert cam.is_point_in_frame(0.0, 0.0) is True
+
+    def test_negative_is_outside(self, camera_system_factory):
+        cam = camera_system_factory()
+        assert cam.is_point_in_frame(-0.01, 50.0) is False
+        assert cam.is_point_in_frame(50.0, -0.01) is False
+
+    def test_upper_bound_is_half_open_exclusive(self, camera_system_factory):
+        """Boundary is `u < width` / `v < height_px` (strict), so u==width
+        exactly is OUTSIDE, not inside."""
+        cam = camera_system_factory()  # width=100, height_px=100
+        assert cam.is_point_in_frame(100.0, 50.0) is False
+        assert cam.is_point_in_frame(99.999, 50.0) is True
+        assert cam.is_point_in_frame(50.0, 100.0) is False
+
+
+class TestGetUe5Commands:
+    def test_command_shape_and_unit_conversion(self, camera_system_factory):
+        """Location must be converted meters -> centimeters (*100); rotation
+        stays in degrees unconverted."""
+        cam = camera_system_factory(x_position=1.5, y_position=-2.0, height=0.75, pitch=1.0, yaw=2.0, roll=3.0)
+        commands = cam.get_ue5_commands()
+        assert commands == [
+            {
+                "type": "set_camera",
+                "location": {"x": 150.0, "y": -200.0, "z": 75.0},
+                "rotation": {"pitch": 1.0, "yaw": 2.0, "roll": 3.0},
+                "fov": cam.config.fov,
+                "resolution": {"width": cam.config.width, "height": cam.config.height_px},
+            }
+        ]
+
+    def test_fov_uses_base_config_before_setup_frame(self, camera_system_factory):
+        cam = camera_system_factory(fov=77.0)
+        commands = cam.get_ue5_commands()
+        assert commands[0]["fov"] == 77.0
+
+    def test_fov_uses_current_state_after_setup_frame(self, camera_system_factory):
+        """Once setup_frame() has run, get_ue5_commands must report the
+        per-frame (possibly jittered) fov, not the static config fov."""
+        cam = camera_system_factory(fov=77.0, fov_jitter=0.0)
+        cam.setup_frame(frame_index=0, apply_jitter=False)
+        commands = cam.get_ue5_commands()
+        assert commands[0]["fov"] == 77.0  # jitter=0 so equal, but now sourced from _current_state
+
+
+class TestValidate:
+    """CameraConfig defaults used by camera_system_factory (height=0.0,
+    fov=90.0, width=100, height_px=100) intentionally fail this validator's
+    "unrealistic height" and "resolution too low" checks -- that's fine,
+    these tests construct their own configs to isolate each check.
+    """
+
+    def test_realistic_config_is_valid(self, camera_config_factory):
+        from vantagecv.research_v2.camera_system import CameraSystem
+
+        cfg = camera_config_factory(height=1.5, fov=90.0, width=1920, height_px=1080)
+        is_valid, issues = CameraSystem(cfg).validate()
+        assert is_valid is True
+        assert issues == []
+
+    def test_fov_out_of_range(self, camera_config_factory):
+        from vantagecv.research_v2.camera_system import CameraSystem
+
+        cfg = camera_config_factory(height=1.5, fov=200.0, width=1920, height_px=1080)
+        is_valid, issues = CameraSystem(cfg).validate()
+        assert is_valid is False
+        assert issues == ["FOV 200.0 outside reasonable range [30, 150]"]
+
+    def test_fov_boundary_values_are_valid(self, camera_config_factory):
+        from vantagecv.research_v2.camera_system import CameraSystem
+
+        for fov in (30.0, 150.0):
+            cfg = camera_config_factory(height=1.5, fov=fov, width=1920, height_px=1080)
+            is_valid, issues = CameraSystem(cfg).validate()
+            assert is_valid is True, f"fov={fov} should be valid, got issues={issues}"
+
+    def test_resolution_too_low(self, camera_config_factory):
+        from vantagecv.research_v2.camera_system import CameraSystem
+
+        cfg = camera_config_factory(height=1.5, fov=90.0, width=320, height_px=240)
+        is_valid, issues = CameraSystem(cfg).validate()
+        assert is_valid is False
+        assert issues == ["Resolution 320x240 too low"]
+
+    def test_resolution_boundary_is_valid(self, camera_config_factory):
+        from vantagecv.research_v2.camera_system import CameraSystem
+
+        cfg = camera_config_factory(height=1.5, fov=90.0, width=640, height_px=480)
+        is_valid, issues = CameraSystem(cfg).validate()
+        assert is_valid is True
+
+    def test_height_unrealistically_low(self, camera_config_factory):
+        from vantagecv.research_v2.camera_system import CameraSystem
+
+        cfg = camera_config_factory(height=0.1, fov=90.0, width=1920, height_px=1080)
+        is_valid, issues = CameraSystem(cfg).validate()
+        assert is_valid is False
+        assert issues == ["Camera height 0.1m unrealistically low"]
+
+    def test_height_boundary_is_valid(self, camera_config_factory):
+        from vantagecv.research_v2.camera_system import CameraSystem
+
+        cfg = camera_config_factory(height=0.5, fov=90.0, width=1920, height_px=1080)
+        is_valid, issues = CameraSystem(cfg).validate()
+        assert is_valid is True
+
+    def test_multiple_issues_all_reported(self, camera_config_factory):
+        from vantagecv.research_v2.camera_system import CameraSystem
+
+        cfg = camera_config_factory(height=0.1, fov=200.0, width=320, height_px=240)
+        is_valid, issues = CameraSystem(cfg).validate()
+        assert is_valid is False
+        assert issues == [
+            "FOV 200.0 outside reasonable range [30, 150]",
+            "Resolution 320x240 too low",
+            "Camera height 0.1m unrealistically low",
+        ]
+
 
 class TestPitchYawRollHaveNoEffect:
     def test_yaw_does_not_change_projection(self, camera_system_factory):
@@ -181,3 +325,37 @@ class TestSetSeedFovJitter:
         cam = camera_system_factory(fov=90.0, fov_jitter=0.0)
         state = cam.setup_frame(frame_index=0, apply_jitter=True)
         assert state.fov == pytest.approx(90.0)
+
+    def test_setup_frame_actually_applies_jitter_via_its_own_arithmetic(self, camera_system_factory):
+        """The two tests above only exercise the "no jitter" branches.
+        This one exercises setup_frame's own `self.config.fov + jitter`
+        arithmetic (not just calling cam._rng.uniform directly, which
+        bypasses setup_frame entirely) -- fov_jitter=10 with a fixed seed,
+        checked against the exact value _rng.uniform would independently
+        produce for that seed.
+        """
+        cam = camera_system_factory(fov=90.0, fov_jitter=10.0)
+        cam.set_seed(42)
+        state = cam.setup_frame(frame_index=0, apply_jitter=True)
+
+        # Recompute the expected jitter independently with a fresh Random(42)
+        # seeded the same way, to avoid relying on setup_frame's own value.
+        import random as random_module
+
+        expected_jitter = random_module.Random(42).uniform(-10.0, 10.0)
+        assert state.fov == pytest.approx(90.0 + expected_jitter)
+        assert state.fov != pytest.approx(90.0)  # confirms jitter was really applied, not skipped
+        assert 80.0 <= state.fov <= 100.0  # within [fov-jitter, fov+jitter]
+
+    def test_setup_frame_recomputes_intrinsics_for_jittered_fov(self, camera_system_factory):
+        """state.intrinsics must be derived from the JITTERED fov, not the
+        base config fov -- otherwise jitter would be cosmetic only."""
+        cam = camera_system_factory(fov=90.0, fov_jitter=10.0, width=100)
+        cam.set_seed(1)
+        state = cam.setup_frame(frame_index=0, apply_jitter=True)
+
+        import math
+
+        expected_fx = 100 / (2 * math.tan(math.radians(state.fov) / 2))
+        assert state.intrinsics.fx == pytest.approx(expected_fx)
+        assert state.fov != pytest.approx(90.0)  # sanity: jitter actually changed fov for this seed

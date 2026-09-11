@@ -55,6 +55,15 @@ class TestTransformOffset:
 
 
 class TestGetVehicleCorners:
+    """These tests compare corners as a `set`, not an ordered list --
+    _get_vehicle_corners' return order (front-left/front-right/back-left/
+    back-right) is not documented as a contract anywhere, and the only
+    consumer (_project_corners, via a dot-product min/max) is genuinely
+    order-independent. If corner ORDER ever becomes meaningful (e.g. for
+    winding-direction-sensitive geometry), these should switch to ordered
+    list comparisons.
+    """
+
     def test_car_uses_half_width_default_when_no_left_right(self, vehicle_bounds_factory):
         from vantagecv.research_v2.vehicle_spacing import VehicleSpacingChecker
 
@@ -351,21 +360,84 @@ class TestCanPlaceVehicle:
         assert result is False
 
     def test_boundary_offsets_cache_is_reused_not_requeried(
-        self, spacing_checker_factory, vehicle_offsets_factory
+        self, spacing_checker_factory, vehicle_offsets_factory, mocker
     ):
         """Confirms the cache-hit path: pre-populating boundary_offsets means
         get_vehicle_bounds never calls _cache_boundary_offsets (and therefore
-        never touches the network) for a vehicle_name already in the dict."""
+        never touches the network) for a vehicle_name already in the dict.
+
+        Directly spies on _cache_boundary_offsets rather than only checking
+        the output transform -- a version of this method that re-queried and
+        happened to get back identical offsets would still produce the same
+        correct output, but WOULD be making a network call, which is exactly
+        the claim this test needs to actually verify.
+        """
         checker = spacing_checker_factory()
         checker.boundary_offsets["v1"] = vehicle_offsets_factory(
             front={"X": 2.0, "Y": 0.0, "Z": 0.0}, back={"X": -2.0, "Y": 0.0, "Z": 0.0}
         )
+        spy = mocker.patch.object(checker, "_cache_boundary_offsets")
+
         bounds = checker.get_vehicle_bounds(
             "v1", "car", {"X": 5.0, "Y": 5.0, "Z": 0.0}, {"Yaw": 0.0}
         )
+
+        spy.assert_not_called()
         assert bounds is not None
         assert bounds.front_boundary == {"X": 7.0, "Y": 5.0, "Z": 0.0}
         assert bounds.back_boundary == {"X": 3.0, "Y": 5.0, "Z": 0.0}
+
+    def test_cache_miss_does_call_cache_boundary_offsets(self, spacing_checker_factory, mocker):
+        """Companion to the test above: confirms the cache-MISS path really
+        does call _cache_boundary_offsets, so the "not called" assertion
+        above is meaningful and not just always-false."""
+        checker = spacing_checker_factory()
+        spy = mocker.patch.object(checker, "_cache_boundary_offsets", return_value=False)
+
+        bounds = checker.get_vehicle_bounds(
+            "unseen_vehicle", "car", {"X": 0.0, "Y": 0.0, "Z": 0.0}, {"Yaw": 0.0}
+        )
+
+        spy.assert_called_once_with("unseen_vehicle", "car")
+        assert bounds is None  # _cache_boundary_offsets returned False -> can't get bounds
+
+
+class TestGetVehicleBoundsBikeBranch:
+    """get_vehicle_bounds' bicycle/motorcycle branch (4 boundaries required)
+    was previously only exercised indirectly through _get_vehicle_corners'
+    fallthrough test -- these test get_vehicle_bounds itself end-to-end."""
+
+    def test_bike_with_all_four_offsets_transforms_all_four(
+        self, spacing_checker_factory, vehicle_offsets_factory
+    ):
+        checker = spacing_checker_factory()
+        checker.boundary_offsets["bike1"] = vehicle_offsets_factory(
+            front={"X": 3.0, "Y": 0.0, "Z": 0.0},
+            back={"X": -3.0, "Y": 0.0, "Z": 0.0},
+            left={"X": 0.0, "Y": -1.0, "Z": 0.0},
+            right={"X": 0.0, "Y": 1.0, "Z": 0.0},
+        )
+        bounds = checker.get_vehicle_bounds(
+            "bike1", "bicycle", {"X": 10.0, "Y": 10.0, "Z": 0.0}, {"Yaw": 0.0}
+        )
+        assert bounds is not None
+        assert bounds.front_boundary == {"X": 13.0, "Y": 10.0, "Z": 0.0}
+        assert bounds.back_boundary == {"X": 7.0, "Y": 10.0, "Z": 0.0}
+        assert bounds.left_boundary == {"X": 10.0, "Y": 9.0, "Z": 0.0}
+        assert bounds.right_boundary == {"X": 10.0, "Y": 11.0, "Z": 0.0}
+
+    def test_bike_missing_left_returns_none(self, spacing_checker_factory, vehicle_offsets_factory):
+        checker = spacing_checker_factory()
+        checker.boundary_offsets["bike1"] = vehicle_offsets_factory(
+            front={"X": 3.0, "Y": 0.0, "Z": 0.0},
+            back={"X": -3.0, "Y": 0.0, "Z": 0.0},
+            right={"X": 0.0, "Y": 1.0, "Z": 0.0},
+            # left omitted
+        )
+        bounds = checker.get_vehicle_bounds(
+            "bike1", "motorcycle", {"X": 0.0, "Y": 0.0, "Z": 0.0}, {"Yaw": 0.0}
+        )
+        assert bounds is None
 
 
 class TestDefaultDimensionFallback:
@@ -397,3 +469,96 @@ class TestDefaultDimensionFallback:
         # DEFAULT_WIDTHS["bicycle"]=60.0 -> half_width=30.0
         assert offsets.left == {"X": 0.0, "Y": -30.0, "Z": 0.0}
         assert offsets.right == {"X": 0.0, "Y": 30.0, "Z": 0.0}
+
+
+class TestCubeClassificationAlgorithm:
+    """_cache_boundary_offsets' real cube-classification logic (front/back/
+    left/right by offset direction, with tie-breaking toward the most
+    extreme candidate). Requires >=2 mocked cube offsets to actually reach
+    this code -- fewer than 2 hits the "no cubes found" default-dimension
+    fallback instead (tested separately in TestDefaultDimensionFallback).
+    """
+
+    def _run(self, spacing_checker_factory, mocker, cube_offsets, category="car"):
+        checker = spacing_checker_factory()
+        mocker.patch.object(checker, "_get_cube_component_offsets", return_value=cube_offsets)
+        result = checker._cache_boundary_offsets("v1", category)
+        return result, checker.boundary_offsets.get("v1")
+
+    def test_pure_x_dominant_classifies_front_and_back(self, spacing_checker_factory, mocker):
+        # abs(x) > abs(y)*2 for both -> X-dominant branch, not the mixed one
+        cubes = {"CubeA": {"X": 200.0, "Y": 10.0, "Z": 0.0}, "CubeB": {"X": -200.0, "Y": 5.0, "Z": 0.0}}
+        result, offsets = self._run(spacing_checker_factory, mocker, cubes)
+        assert result is True
+        assert offsets.front == {"X": 200.0, "Y": 10.0, "Z": 0.0}
+        assert offsets.back == {"X": -200.0, "Y": 5.0, "Z": 0.0}
+        assert offsets.left is None
+        assert offsets.right is None
+
+    def test_pure_y_dominant_only_has_no_front_back_and_fails(self, spacing_checker_factory, mocker):
+        """Y-dominant cubes classify as left/right, never front/back -- with
+        no front/back candidates at all, the "at least front and back"
+        validation must fail and boundary_offsets must NOT be populated."""
+        cubes = {"CubeA": {"X": 5.0, "Y": 100.0, "Z": 0.0}, "CubeB": {"X": 5.0, "Y": -100.0, "Z": 0.0}}
+        result, offsets = self._run(spacing_checker_factory, mocker, cubes)
+        assert result is False
+        assert offsets is None  # never written to boundary_offsets on failure
+
+    def test_mixed_branch_x_ge_y_classifies_front_back(self, spacing_checker_factory, mocker):
+        """Neither X-dominant (x>2y) nor Y-dominant (y>2x) -- falls into the
+        `else` mixed branch, which then picks front/back when |x|>=|y|."""
+        cubes = {"A": {"X": 10.0, "Y": 8.0, "Z": 0.0}, "B": {"X": -10.0, "Y": -8.0, "Z": 0.0}}
+        result, offsets = self._run(spacing_checker_factory, mocker, cubes)
+        assert result is True
+        assert offsets.front == {"X": 10.0, "Y": 8.0, "Z": 0.0}
+        assert offsets.back == {"X": -10.0, "Y": -8.0, "Z": 0.0}
+
+    def test_mixed_branch_y_gt_x_classifies_left_right(self, spacing_checker_factory, mocker):
+        """Same mixed `else` branch, but |y|>|x| this time -> left/right,
+        combined with separate X-dominant cubes for front/back so the
+        overall front+back validation still succeeds and the result gets
+        written to boundary_offsets where we can inspect left/right too."""
+        cubes = {
+            "Front": {"X": 200.0, "Y": 5.0, "Z": 0.0},
+            "Back": {"X": -200.0, "Y": 5.0, "Z": 0.0},
+            "RightMixed": {"X": 5.0, "Y": 8.0, "Z": 0.0},
+            "LeftMixed": {"X": -5.0, "Y": -8.0, "Z": 0.0},
+        }
+        result, offsets = self._run(spacing_checker_factory, mocker, cubes, category="bicycle")
+        assert result is True
+        assert offsets.right == {"X": 5.0, "Y": 8.0, "Z": 0.0}
+        assert offsets.left == {"X": -5.0, "Y": -8.0, "Z": 0.0}
+
+    def test_y_dominant_right_and_left_classification(self, spacing_checker_factory, mocker):
+        cubes = {
+            "Front": {"X": 200.0, "Y": 5.0, "Z": 0.0},
+            "Back": {"X": -200.0, "Y": 5.0, "Z": 0.0},
+            "Right": {"X": 5.0, "Y": 100.0, "Z": 0.0},
+            "Left": {"X": 5.0, "Y": -100.0, "Z": 0.0},
+        }
+        result, offsets = self._run(spacing_checker_factory, mocker, cubes, category="bicycle")
+        assert result is True
+        assert offsets.right == {"X": 5.0, "Y": 100.0, "Z": 0.0}
+        assert offsets.left == {"X": 5.0, "Y": -100.0, "Z": 0.0}
+
+    def test_tie_break_picks_most_extreme_front_candidate(self, spacing_checker_factory, mocker):
+        """Three X-dominant-positive candidates competing for "front" --
+        the most extreme (largest X) must win, not the first or last seen."""
+        cubes = {
+            "A": {"X": 100.0, "Y": 0.0, "Z": 0.0},
+            "B": {"X": 150.0, "Y": 0.0, "Z": 0.0},
+            "C": {"X": 120.0, "Y": 0.0, "Z": 0.0},
+            "Back1": {"X": -50.0, "Y": 0.0, "Z": 0.0},
+        }
+        result, offsets = self._run(spacing_checker_factory, mocker, cubes)
+        assert result is True
+        assert offsets.front == {"X": 150.0, "Y": 0.0, "Z": 0.0}
+        assert offsets.back == {"X": -50.0, "Y": 0.0, "Z": 0.0}
+
+    def test_incomplete_boundaries_front_only_fails(self, spacing_checker_factory, mocker):
+        """Two cubes but both classify as front (no back candidate at all)
+        -> validation must fail even though >=2 cubes were found."""
+        cubes = {"A": {"X": 100.0, "Y": 0.0, "Z": 0.0}, "B": {"X": 150.0, "Y": 0.0, "Z": 0.0}}
+        result, offsets = self._run(spacing_checker_factory, mocker, cubes)
+        assert result is False
+        assert offsets is None

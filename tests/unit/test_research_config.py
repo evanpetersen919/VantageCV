@@ -109,6 +109,32 @@ class TestCameraConfigIntrinsics:
         assert cfg.intrinsics["cy"] == 300.0
 
 
+class TestOutputConfigDirectories:
+    def test_create_directories_creates_all_four_subdirs(self, tmp_path):
+        cfg = OutputConfig(base_dir=tmp_path / "out")
+        assert not cfg.images_dir.exists()
+
+        cfg.create_directories()
+
+        assert cfg.images_dir.is_dir()
+        assert cfg.annotations_dir.is_dir()
+        assert cfg.logs_dir.is_dir()
+        assert cfg.metadata_dir.is_dir()
+
+    def test_create_directories_is_idempotent(self, tmp_path):
+        cfg = OutputConfig(base_dir=tmp_path / "out")
+        cfg.create_directories()
+        cfg.create_directories()  # must not raise on second call
+        assert cfg.images_dir.is_dir()
+
+    def test_dir_properties_join_base_dir_and_subdir(self, tmp_path):
+        cfg = OutputConfig(base_dir=tmp_path / "out")
+        assert cfg.images_dir == tmp_path / "out" / "images"
+        assert cfg.annotations_dir == tmp_path / "out" / "annotations"
+        assert cfg.logs_dir == tmp_path / "out" / "logs"
+        assert cfg.metadata_dir == tmp_path / "out" / "metadata"
+
+
 class TestResearchConfigPostInit:
     def test_default_base_dir_rewritten_to_experiment_name(self):
         cfg = ResearchConfig(experiment_name="my_experiment")
@@ -185,6 +211,16 @@ class TestResearchConfigValidate:
         issues = cfg.validate()
         assert issues == ["Road length should be at least 50m for vehicle variety"]
 
+    def test_road_length_exactly_fifty_is_not_flagged(self):
+        """Condition is strict `< 50`, so exactly 50.0 must NOT trigger."""
+        cfg = ResearchConfig(scene=SceneConfig(road_length=50.0))
+        assert cfg.validate() == []
+
+    def test_road_length_just_under_fifty_is_flagged(self):
+        cfg = ResearchConfig(scene=SceneConfig(road_length=49.99))
+        issues = cfg.validate()
+        assert issues == ["Road length should be at least 50m for vehicle variety"]
+
     def test_class_weights_not_summing_to_one(self):
         from vantagecv.research_v2.config import VehicleSpawnerConfig
 
@@ -247,7 +283,10 @@ class TestResearchConfigValidate:
         assert cfg.num_images == -5  # not clamped/rejected
         assert cfg.camera.fov == 999.0
         issues = cfg.validate()  # only now do the problems surface
-        assert len(issues) >= 2
+        assert issues == [
+            "Camera FOV 999.0 is outside reasonable range [30, 150]",
+            "Must generate at least 1 image",
+        ]
 
 
 class TestLoadOrCreateConfig:

@@ -89,6 +89,70 @@ class TestSceneValidationReportCounts:
         assert report.results == []
 
 
+class TestValidateZonesNetworkFreePaths:
+    """_validate_zones has two early-return branches reachable with zero
+    HTTP calls, by setting anchor_config directly -- the rest of the
+    method (anchor-existence checks) does need a live UE5 connection and
+    stays out of scope, per this file's module docstring.
+    """
+
+    def test_no_anchor_config_fails(self, controller_factory):
+        controller = controller_factory()
+        assert controller.anchor_config is None  # confirmed by the hermetic tmp_path fixture
+
+        result = controller._validate_zones()
+
+        assert result.status == ValidationStatus.FAIL
+        assert result.message == "No anchor configuration loaded"
+
+    def test_anchor_config_with_zero_zones_fails(self, controller_factory):
+        controller = controller_factory()
+        # Must be truthy (an empty dict {} is falsy in Python and would
+        # incorrectly hit the OTHER early return, "No anchor configuration
+        # loaded" -- confirmed the hard way when this test first failed).
+        controller.anchor_config = {"parking": {}, "lanes": {}, "sidewalks": {}}
+
+        result = controller._validate_zones()
+
+        assert result.status == ValidationStatus.FAIL
+        assert result.message == "No zone anchors defined in config"
+
+
+class TestGetVehiclePool:
+    """Pure, no I/O -- reads self.vehicle_config directly."""
+
+    def test_no_vehicle_config_returns_empty_list(self, controller_factory):
+        controller = controller_factory()
+        assert controller.vehicle_config is None
+        assert controller._get_vehicle_pool() == []
+
+    def test_extracts_names_across_all_five_categories(self, controller_factory):
+        controller = controller_factory()
+        controller.vehicle_config = {
+            "vehicles": {
+                "car": [{"name": "Car_1"}, {"name": "Car_2"}],
+                "truck": [{"name": "Truck_1"}],
+                "bus": [{"name": "Bus_1"}],
+                "motorcycle": [{"name": "Moto_1"}],
+                "bicycle": [{"name": "Bike_1"}],
+            }
+        }
+        # Iteration order is fixed in source as bicycle, bus, car, motorcycle, truck.
+        assert controller._get_vehicle_pool() == [
+            "Bike_1", "Bus_1", "Car_1", "Car_2", "Moto_1", "Truck_1",
+        ]
+
+    def test_missing_category_is_skipped_not_an_error(self, controller_factory):
+        controller = controller_factory()
+        controller.vehicle_config = {"vehicles": {"car": [{"name": "Car_1"}]}}
+        assert controller._get_vehicle_pool() == ["Car_1"]
+
+    def test_empty_vehicles_dict_returns_empty_list(self, controller_factory):
+        controller = controller_factory()
+        controller.vehicle_config = {"vehicles": {}}
+        assert controller._get_vehicle_pool() == []
+
+
 class TestValidateVehiclePlacement:
     def _vehicle(self, name, x=0.0, y=0.0, z=0.0):
         return {"name": name, "transform": {"location": {"X": x, "Y": y, "Z": z}}, "visible": True}

@@ -12,12 +12,15 @@ This file covers:
     weather_augmentation_controller.py) -- each reached via an input that
     makes the method return early (no anchors/no matching state) right
     after the seed call, so no UE5 Remote Control network call happens.
-  - A direct, ordered-pair test proving conftest.py's autouse
-    _isolate_global_random_state fixture actually prevents that global
-    seeding from leaking into a subsequent, unrelated test.
+  - A pytester-based test proving conftest.py's autouse
+    _isolate_global_random_state fixture actually prevents global seeding
+    from leaking into a subsequent, unrelated test, run in a genuinely
+    isolated inner pytest session rather than relying on outer-suite
+    execution order.
 """
 
 import random
+from pathlib import Path
 
 import pytest
 
@@ -125,26 +128,88 @@ class TestGlobalRandomSeedSmokeTests:
 
 class TestAutouseFixtureIsolatesGlobalRandomState:
     """Proves conftest.py's autouse _isolate_global_random_state fixture
-    actually prevents cross-test pollution. This is inherently an
-    order-dependent pair of tests (pytest's default collection order is
-    file-then-top-to-bottom, which we rely on here) -- if a random-order
-    test runner plugin is ever added, this specific pair would need
-    `@pytest.mark.order` or similar to stay meaningful.
+    actually prevents cross-test pollution.
+
+    This runs the check in a genuinely isolated INNER pytest session (via
+    the built-in `pytester` fixture), rather than as a same-suite ordered
+    pair of tests relying on the outer suite's collection order. An
+    earlier version of this test WAS an ordered pair sharing a class
+    attribute -- correct under this repo's current plugin set (no
+    pytest-randomly/pytest-xdist installed), but fragile: a reordering
+    plugin could split or shuffle the pair and turn a real isolation
+    failure into a confusing, unrelated-looking assertion error instead of
+    a clean pass/fail on the actual behavior. The inner session approach
+    is order-proof by construction: its two test functions' relative
+    order is fixed by the file this test itself writes, independent of
+    whatever plugins are active in the outer session running this test.
     """
 
-    _state_before_pollution = None
+    def test_fixture_isolates_pollution_in_an_isolated_inner_session(self, pytester):
+        project_root = Path(__file__).resolve().parents[2]
+        pytester.syspathinsert(project_root)
 
-    def test_1_pollutes_global_random_state(self):
-        TestAutouseFixtureIsolatesGlobalRandomState._state_before_pollution = random.getstate()
-        random.seed(31337)
-        polluted_draw = random.random()
-        # Sanity: seeding really did change state (not a no-op).
-        assert random.getstate() != TestAutouseFixtureIsolatesGlobalRandomState._state_before_pollution
-        assert isinstance(polluted_draw, float)
+        pytester.makeconftest(
+            """
+            from tests.conftest import _isolate_global_random_state
+            """
+        )
+        pytester.makepyfile(
+            """
+            import random
 
-    def test_2_next_test_does_not_see_the_pollution(self):
-        assert TestAutouseFixtureIsolatesGlobalRandomState._state_before_pollution is not None
-        # If the autouse fixture works, global state was restored after
-        # test_1 finished, so it should match what it was BEFORE test_1
-        # polluted it -- not the seed(31337) state.
-        assert random.getstate() == TestAutouseFixtureIsolatesGlobalRandomState._state_before_pollution
+            _state_before_pollution = None
+
+            def test_1_pollutes_global_random_state():
+                global _state_before_pollution
+                _state_before_pollution = random.getstate()
+                random.seed(31337)
+                draw = random.random()
+                assert random.getstate() != _state_before_pollution  # sanity: really changed
+                assert isinstance(draw, float)
+
+            def test_2_next_test_does_not_see_the_pollution():
+                assert _state_before_pollution is not None
+                assert random.getstate() == _state_before_pollution
+            """
+        )
+
+        result = pytester.runpytest("-p", "no:randomly")
+        result.assert_outcomes(passed=2)
+
+    def test_isolation_is_load_bearing_not_a_tautology(self, pytester):
+        """Companion test: with the real fixture NOT applied (a plain
+        no-op replacement in its place), the same two-test pattern must
+        FAIL -- proving the pass above is actually caused by the fixture,
+        not by some other coincidence (e.g. random.random() happening to
+        reset itself, or the test bodies being wrong)."""
+        project_root = Path(__file__).resolve().parents[2]
+        pytester.syspathinsert(project_root)
+
+        pytester.makeconftest(
+            """
+            import pytest
+
+            @pytest.fixture(autouse=True)
+            def _no_isolation_at_all():
+                yield  # deliberately does NOT save/restore random state
+            """
+        )
+        pytester.makepyfile(
+            """
+            import random
+
+            _state_before_pollution = None
+
+            def test_1_pollutes_global_random_state():
+                global _state_before_pollution
+                _state_before_pollution = random.getstate()
+                random.seed(31337)
+                random.random()
+
+            def test_2_next_test_does_not_see_the_pollution():
+                assert random.getstate() == _state_before_pollution
+            """
+        )
+
+        result = pytester.runpytest("-p", "no:randomly")
+        result.assert_outcomes(passed=1, failed=1)
