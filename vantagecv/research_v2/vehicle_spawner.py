@@ -4,19 +4,12 @@ Research v2 - MODULE 2: Vehicle Spawner
 ╔════════════════════════════════════════════════════════════════════════════╗
 ║                           ⚠️  DEPRECATED  ⚠️                               ║
 ║                                                                            ║
-║  This module has been superseded by anchor_spawn_controller.py            ║
-║                                                                            ║
-║  The anchor-based spawning system provides:                                ║
-║    - Deterministic spawning using FRandomStream                            ║
-║    - Anchor-driven placement (no hardcoded coordinates)                    ║
-║    - Parking slot spawning with pull-in/reverse-in modes                   ║
-║    - Road lane spawning with parametric t placement                        ║
-║    - Sidewalk pedestrian spawning within bounds                            ║
-║    - Single source of truth for all transforms                             ║
-║                                                                            ║
-║  Configuration: configs/levels/<level_name>_anchors.yaml                   ║
-║  Controller: vantagecv/research_v2/anchor_spawn_controller.py              ║
-║  C++ Backend: AnchorSpawnSystem.h/.cpp                                     ║
+║  This module is part of an older, no-longer-developed pipeline            ║
+║  (scripts/generate_v2.py). The actively developed vehicle-spawning        ║
+║  path used in production (scripts/capture.py) is                          ║
+║  vantagecv/research_v2/vehicle_spawn_controller.py — NOT                  ║
+║  anchor_spawn_controller.py, which this notice previously (incorrectly)   ║
+║  named as the replacement.                                                ║
 ║                                                                            ║
 ║  This file remains for backward compatibility reference only.              ║
 ║  It will be removed in a future release.                                   ║
@@ -52,8 +45,9 @@ import warnings
 
 # Issue deprecation warning on import
 warnings.warn(
-    "vehicle_spawner.py is deprecated. Use anchor_spawn_controller.py instead. "
-    "See configs/levels/*_anchors.yaml for anchor configuration.",
+    "vehicle_spawner.py is part of an older, no-longer-developed pipeline "
+    "(scripts/generate_v2.py). Production vehicle spawning uses "
+    "vehicle_spawn_controller.py (see scripts/capture.py).",
     DeprecationWarning,
     stacklevel=2
 )

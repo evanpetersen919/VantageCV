@@ -1,9 +1,10 @@
 # README Images
 
-Place your 3 showcase images here:
+Sample output images referenced by the root `README.md`'s "Sample Outputs" section:
 
-1. **demo1.png** - Weather variation example (e.g., foggy/rainy scene)
-2. **demo2.png** - Time of day variation (e.g., sunset/night scene)
-3. **demo3.png** - Multi-vehicle scene with different vehicle types
+- **demo1.png** — environmental augmentation example
+- **demo2.png** — example output
+- **demo3.png** — example output
 
-Recommended image dimensions: 1920x1080 or similar aspect ratio
+To replace these with newer captures, keep the same three filenames (or update the
+`<img src="...">` paths in the root `README.md` to match new ones).

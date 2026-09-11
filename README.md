@@ -79,6 +79,17 @@ VantageCV generates COCO-formatted datasets through procedural scene randomizati
 
 ---
 
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — system design and data flow
+- [QUICKSTART.md](QUICKSTART.md) — zone-detection and capture setup steps
+- [LIGHTING_POLICY.md](LIGHTING_POLICY.md) — how directional/sky lighting randomization works
+- [tests/README.md](tests/README.md) — running the test suite
+- [scripts/README.md](scripts/README.md) — capture/generation entry points
+- [configs/README.md](configs/README.md) — config file reference
+
+---
+
 ## License
 
 Personal portfolio project. All rights reserved.

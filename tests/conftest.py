@@ -95,8 +95,8 @@ def spawned_vehicle_factory():
     """Factory for a SpawnedVehicle with plain, explicit field values.
 
     Importing vehicle_spawner.py emits a module-level DeprecationWarning
-    (it says the module is superseded by anchor_spawn_controller.py); it's
-    filtered globally in pyproject.toml's [tool.pytest.ini_options], not
+    (it's part of the older, no-longer-developed generate_v2.py pipeline);
+    it's filtered globally in pyproject.toml's [tool.pytest.ini_options], not
     here -- by the time this fixture runs, research_v2/__init__.py has
     already imported vehicle_spawner once (module imports are cached), so
     a local catch_warnings() here would be a no-op.

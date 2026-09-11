@@ -40,5 +40,5 @@ markers = [
     "live_ue5: requires a running UE5 instance with the VantageCV plugin listening",
 ]
 filterwarnings = [
-    "ignore:vehicle_spawner.py is deprecated:DeprecationWarning",
+    "ignore:vehicle_spawner.py is part of an older, no-longer-developed pipeline:DeprecationWarning",
 ]
