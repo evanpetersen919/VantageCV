@@ -601,7 +601,7 @@ def get_camera_spawn_bounds(host="127.0.0.1", port=30010,
                     "X": loc.get("X", 0),
                     "Y": loc.get("Y", 0),
                 })
-        except:
+        except Exception:
             continue
     
     if len(cube_positions) < 2:

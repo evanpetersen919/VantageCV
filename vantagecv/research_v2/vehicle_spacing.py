@@ -332,7 +332,7 @@ class VehicleSpacingChecker:
             if response.status_code != 200:
                 return {}
             veh_rot = response.json().get("ReturnValue", {})
-        except:
+        except Exception:
             return {}
         
         if not veh_loc or not veh_rot:
@@ -368,7 +368,7 @@ class VehicleSpacingChecker:
                             local_x = world_dx * cos_inv - world_dy * sin_inv
                             local_y = world_dx * sin_inv + world_dy * cos_inv
                             offsets[cube_name] = {"X": local_x, "Y": local_y, "Z": world_dz}
-            except:
+            except Exception:
                 continue
         
         # If we found cube components, return them
@@ -417,9 +417,9 @@ class VehicleSpacingChecker:
                                 local_x = world_dx * cos_inv - world_dy * sin_inv
                                 local_y = world_dx * sin_inv + world_dy * cos_inv
                                 offsets[comp_name] = {"X": local_x, "Y": local_y, "Z": world_dz}
-                except:
+                except Exception:
                     continue
-        except:
+        except Exception:
             pass
         
         return offsets
@@ -471,7 +471,7 @@ class VehicleSpacingChecker:
             if response.status_code == 200:
                 result = response.json()
                 return result.get("ReturnValue")
-        except:
+        except Exception:
             pass
         
         return None
@@ -493,7 +493,7 @@ class VehicleSpacingChecker:
             if response.status_code == 200:
                 result = response.json()
                 return result.get("ReturnValue")
-        except:
+        except Exception:
             pass
         
         return None

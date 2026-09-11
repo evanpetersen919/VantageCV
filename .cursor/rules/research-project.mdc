@@ -1,0 +1,45 @@
+---
+description: Project-specific rules for VantageCV. Apply when editing vantagecv/, ue5_plugin/, tests/, configs/, or scripts/.
+alwaysApply: false
+---
+
+# VantageCV project rules
+
+## Domain invariants
+
+- **UE5 world units are centimeters, vehicle dimension tables are meters.** Any value
+  crossing between `vantagecv/research_v2/annotation.py`'s `VEHICLE_DIMENSIONS`-style
+  tables (meters) and UE5 actor transforms / Remote Control API calls (centimeters) must
+  be explicitly converted. This is the single most common source of a silently-wrong
+  bounding box or spawn position.
+- **`VehicleClass` (config.py) and `configs/vehicles.yaml` category names must match
+  exactly.** A mismatch doesn't error — it silently drops or misclassifies vehicles.
+- **COCO `category_id` must come from `VehicleClass.get_id()`, never a hardcoded int.**
+  Two places computing this independently is how class ID drift happens.
+- **`random_seed` in `configs/research_v2.yaml` flows into UE5's `Config.RandomSeed`
+  (`DomainRandomization.cpp`), which seeds all lighting/sky/vehicle randomization.**
+  Changing how the seed is passed or defaulted breaks the "seed-based deterministic
+  generation" guarantee stated in README.md.
+- **DirectionalLight/sky randomization is intentional, not a bug** — see
+  `RandomizeLighting()`/`RandomizeSky()` in `DomainRandomization.cpp`. Don't "fix" or
+  remove it based on `LIGHTING_POLICY.md` history; that doc was corrected because it
+  described an earlier, now-inaccurate policy.
+- **`_projection_failures` in `AnnotationGenerator` must stay authoritative** — a vehicle
+  whose projection fails must be excluded from COCO output, not silently annotated with a
+  degenerate bounding box.
+
+## Where things live
+
+- Python pipeline: `vantagecv/research_v2/...` (orchestrator, camera_system, annotation,
+  scene_controller, vehicle_spawner, validation, logging_utils, config)
+- UE5 C++ plugin: `ue5_plugin/Source/VantageCV/...`
+- Configs: `configs/research_v2.yaml`, `configs/vehicles.yaml`, `configs/levels/`, `configs/zones/`
+- Entry-point scripts: `scripts/capture*.py`, `scripts/generate_v2.py`, `scripts/test_randomization.py`
+
+## When editing this project's code, also check
+
+- Does this change touch a constant listed in "Domain invariants" above? If so, grep for
+  every other place that constant appears (Python config, C++ plugin, YAML configs)
+  before committing.
+- Does a Python-side config change require a matching UE5-side change (or vice versa),
+  given the two communicate over the Remote Control API rather than sharing a type system?

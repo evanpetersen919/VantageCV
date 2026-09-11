@@ -10,7 +10,6 @@
 
 #include "VantageCVModule.h"
 #include "IRemoteControlModule.h"
-#include "RemoteControlPreset.h"
 #include "DataCapture.h"
 #include "EngineUtils.h"
 #include "Engine/World.h"

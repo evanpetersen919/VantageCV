@@ -6,6 +6,7 @@ __pycache__/
 .Python
 env/
 venv/
+.venv/
 ENV/
 build/
 develop-eggs/
@@ -101,6 +102,8 @@ Makefile
 ue5_plugin/Binaries/
 ue5_plugin/Intermediate/
 ue5_plugin/Build/
+ue5_plugin/Saved/
+Saved/
 
 # IDE
 .vscode/

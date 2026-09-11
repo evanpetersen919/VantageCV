@@ -15,7 +15,6 @@
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
 #include "Modules/ModuleManager.h"
-#include "Camera/CameraComponent.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "EngineUtils.h"
@@ -26,10 +25,6 @@
 #include "Json.h"
 #include "JsonUtilities.h"
 #include "RenderingThread.h"
-#include "Engine/DirectionalLight.h"
-#include "Components/DirectionalLightComponent.h"
-#include "Engine/SkyLight.h"
-#include "Components/SkyLightComponent.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogDataCapture, Log, All);
 

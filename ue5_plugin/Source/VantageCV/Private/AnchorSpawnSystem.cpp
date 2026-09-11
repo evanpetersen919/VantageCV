@@ -6,7 +6,6 @@
 #include "Components/StaticMeshComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "EngineUtils.h"  // For TActorIterator
-#include "DrawDebugHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogAnchorSpawn, Log, All);
 

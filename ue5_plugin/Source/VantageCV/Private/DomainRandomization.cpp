@@ -24,10 +24,6 @@
 #include "EngineUtils.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Engine/StaticMeshActor.h"
-#include "UObject/ConstructorHelpers.h"
-#include "Camera/CameraComponent.h"
-#include "Engine/LocalPlayer.h"
-#include "GameFramework/PlayerController.h"
 
 // Forward declaration - ASkyAtmosphere not needed for this implementation
 class ASkyAtmosphere;
