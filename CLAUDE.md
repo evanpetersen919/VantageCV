@@ -72,15 +72,29 @@ flake8
 ```
 `.claude/settings.json`'s auto-format hooks (black/isort) run on save; the stricter
 flake8/mypy blocking hooks from the original template were intentionally **not** carried
-over here for that reason (see AGENTS.md provenance note).
+over here for that reason (see AGENTS.md provenance note). CI (`.github/workflows/tests.yml`)
+runs flake8 too, but as a separate, informational job with `continue-on-error: true` —
+it will never block a merge given the current lint debt (see `flake8`'s ~3000+
+pre-existing findings if you run it locally).
 
 ### Testing
 
-There is no real pytest suite yet — only `tests/integration/setup_ue5_actors.py` and
-manual one-off scripts under `scripts/` (`test_randomization.py`,
-`interactive_spawn_test.py`, `test_anchor_spawn.py`, `test_prop_validation.py`). See the
-`test-audit` skill (`.claude/skills/test-audit/`) for the priority list of what should be
-tested first.
+`tests/unit/` has a real pytest suite (200+ tests) covering every fully-pure-Python
+module: `annotation.py`, `camera_system.py`, both config modules, `vehicle_spacing.py`,
+`scene_validation_controller.py`'s semi-pure logic, `ue5_bridge.py` (HTTP-mocked via
+`requests-mock`), and seed-determinism/RNG-isolation regression tests. Run it with:
+```bash
+pytest -m "not live_ue5"
+```
+CI (`.github/workflows/tests.yml`) runs this exact command on every push/PR to `main`.
+Tests marked `@pytest.mark.live_ue5` (none exist yet) are reserved for future
+integration tests that need a real running UE5 instance — they're excluded from CI.
+`tests/integration/setup_ue5_actors.py` and the manual one-off scripts under `scripts/`
+(`interactive_spawn_test.py`, `test_anchor_spawn.py`, `test_prop_validation.py`) remain
+separate from the pytest suite since they require a live UE5 connection. See the
+`test-audit` skill (`.claude/skills/test-audit/`) for what's still untested (the
+network-dependent parts of `scene_validation_controller.py`, `vehicle_spawn_controller.py`,
+and the full generation pipeline end-to-end).
 
 ### Pipeline Entry Points
 ```bash

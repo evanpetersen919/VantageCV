@@ -25,6 +25,12 @@ wheels/
 *.egg
 *.log
 
+# pytest / coverage
+.coverage
+.coverage.*
+.pytest_cache/
+htmlcov/
+
 # Jupyter Notebook
 .ipynb_checkpoints
 
