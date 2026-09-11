@@ -1,5 +1,7 @@
 # VantageCV
 
+[![Tests](https://github.com/evanpetersen919/VantageCV/actions/workflows/tests.yml/badge.svg)](https://github.com/evanpetersen919/VantageCV/actions/workflows/tests.yml)
+
 A synthetic computer vision dataset generator for autonomous vehicle perception research. Built with Unreal Engine 5 and Python, VantageCV produces photorealistic annotated imagery with controlled environmental parameters for training and evaluating object detection models.
 
 ---
