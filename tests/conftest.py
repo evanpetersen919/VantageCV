@@ -7,7 +7,6 @@ exploration that established this). Do not add a fixture that constructs
 """
 
 import random
-import warnings
 
 import pytest
 
@@ -84,16 +83,17 @@ def spawned_vehicle_factory():
     """Factory for a SpawnedVehicle with plain, explicit field values.
 
     Importing vehicle_spawner.py emits a module-level DeprecationWarning
-    (it says the module is superseded by anchor_spawn_controller.py) --
-    that warning is expected and filtered here, not silenced globally.
+    (it says the module is superseded by anchor_spawn_controller.py); it's
+    filtered globally in pyproject.toml's [tool.pytest.ini_options], not
+    here -- by the time this fixture runs, research_v2/__init__.py has
+    already imported vehicle_spawner once (module imports are cached), so
+    a local catch_warnings() here would be a no-op.
     """
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        from vantagecv.research_v2.vehicle_spawner import (
-            SpawnedVehicle,
-            VehicleDimensions,
-            VehicleTransform,
-        )
+    from vantagecv.research_v2.vehicle_spawner import (
+        SpawnedVehicle,
+        VehicleDimensions,
+        VehicleTransform,
+    )
     from vantagecv.research_v2.config import VehicleClass
 
     def _make(

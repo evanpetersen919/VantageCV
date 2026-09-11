@@ -178,12 +178,12 @@ class TestResearchConfigValidate:
     def test_num_lanes_below_one(self):
         cfg = ResearchConfig(scene=SceneConfig(num_lanes=0, lane_positions=[]))
         issues = cfg.validate()
-        assert any("at least 1 lane" in i for i in issues)
+        assert issues == ["Scene must have at least 1 lane"]
 
     def test_road_length_below_fifty(self):
         cfg = ResearchConfig(scene=SceneConfig(road_length=10.0))
         issues = cfg.validate()
-        assert any("Road length" in i for i in issues)
+        assert issues == ["Road length should be at least 50m for vehicle variety"]
 
     def test_class_weights_not_summing_to_one(self):
         from vantagecv.research_v2.config import VehicleSpawnerConfig
@@ -192,7 +192,7 @@ class TestResearchConfigValidate:
             vehicles=VehicleSpawnerConfig(class_weights={"car": 0.5, "truck": 0.6})
         )
         issues = cfg.validate()
-        assert any("must sum to 1.0" in i for i in issues)
+        assert issues == ["Vehicle class weights must sum to 1.0, got 1.1"]
 
     def test_class_weights_within_tolerance_is_ok(self):
         from vantagecv.research_v2.config import VehicleSpawnerConfig
@@ -202,17 +202,17 @@ class TestResearchConfigValidate:
             vehicles=VehicleSpawnerConfig(class_weights={"car": 0.505, "truck": 0.5})
         )
         issues = cfg.validate()
-        assert not any("must sum to 1.0" in i for i in issues)
+        assert issues == []
 
     def test_fov_out_of_range_low(self):
         cfg = ResearchConfig(camera=CameraConfig(fov=10.0))
         issues = cfg.validate()
-        assert any("outside reasonable range" in i for i in issues)
+        assert issues == ["Camera FOV 10.0 is outside reasonable range [30, 150]"]
 
     def test_fov_out_of_range_high(self):
         cfg = ResearchConfig(camera=CameraConfig(fov=200.0))
         issues = cfg.validate()
-        assert any("outside reasonable range" in i for i in issues)
+        assert issues == ["Camera FOV 200.0 is outside reasonable range [30, 150]"]
 
     def test_fov_boundary_values_are_ok(self):
         assert not any(
@@ -225,7 +225,7 @@ class TestResearchConfigValidate:
     def test_num_images_below_one(self):
         cfg = ResearchConfig(num_images=0)
         issues = cfg.validate()
-        assert any("at least 1 image" in i for i in issues)
+        assert issues == ["Must generate at least 1 image"]
 
     def test_multiple_issues_all_reported(self):
         cfg = ResearchConfig(
@@ -234,7 +234,11 @@ class TestResearchConfigValidate:
             camera=CameraConfig(fov=5.0),
         )
         issues = cfg.validate()
-        assert len(issues) >= 3
+        assert issues == [
+            "Scene must have at least 1 lane",
+            "Camera FOV 5.0 is outside reasonable range [30, 150]",
+            "Must generate at least 1 image",
+        ]
 
     def test_validate_is_never_auto_invoked(self):
         """A deliberately-invalid config (built via from_dict) must not raise

@@ -249,7 +249,13 @@ class TestValidateBbox:
         bbox = BoundingBox2D(x=10, y=10, width=9, height=9)
         is_valid, issues = gen._validate_bbox(bbox, truncation=0.0)
         assert is_valid is False
-        assert any("Area" in i for i in issues)
+        # width=9 and height=9 are both also below min_bbox_dimension=10, so
+        # all three checks fire together here, not area alone.
+        assert issues == [
+            "Area 81.0 below minimum 100",
+            "Width 9.0 below minimum 10",
+            "Height 9.0 below minimum 10",
+        ]
 
     def test_area_exactly_at_minimum_is_not_flagged(self, annotation_config_factory, camera_system_factory):
         gen = self._gen(annotation_config_factory, camera_system_factory)
@@ -265,22 +271,21 @@ class TestValidateBbox:
         bbox = BoundingBox2D(x=10, y=10, width=9, height=20)  # width<10, area=180>=100
         is_valid, issues = gen._validate_bbox(bbox, truncation=0.0)
         assert is_valid is False
-        assert any("Width" in i for i in issues)
-        assert not any("Height" in i for i in issues)
+        assert issues == ["Width 9.0 below minimum 10"]
 
     def test_height_below_minimum_dimension(self, annotation_config_factory, camera_system_factory):
         gen = self._gen(annotation_config_factory, camera_system_factory)
         bbox = BoundingBox2D(x=10, y=10, width=20, height=9)
         is_valid, issues = gen._validate_bbox(bbox, truncation=0.0)
         assert is_valid is False
-        assert any("Height" in i for i in issues)
+        assert issues == ["Height 9.0 below minimum 10"]
 
     def test_truncation_above_maximum(self, annotation_config_factory, camera_system_factory):
         gen = self._gen(annotation_config_factory, camera_system_factory)
         bbox = BoundingBox2D(x=10, y=10, width=20, height=20)
         is_valid, issues = gen._validate_bbox(bbox, truncation=0.81)
         assert is_valid is False
-        assert any("Truncation" in i for i in issues)
+        assert issues == ["Truncation 0.81 exceeds maximum 0.8"]
 
     def test_truncation_exactly_at_maximum_is_not_flagged(self, annotation_config_factory, camera_system_factory):
         gen = self._gen(annotation_config_factory, camera_system_factory)
@@ -294,14 +299,14 @@ class TestValidateBbox:
         bbox = BoundingBox2D(x=100, y=10, width=20, height=20)
         is_valid, issues = gen._validate_bbox(bbox, truncation=0.0)
         assert is_valid is False
-        assert any("completely outside" in i for i in issues)
+        assert issues == ["Bbox completely outside image"]
 
     def test_bbox_starting_beyond_bottom_edge(self, annotation_config_factory, camera_system_factory):
         gen = self._gen(annotation_config_factory, camera_system_factory)
         bbox = BoundingBox2D(x=10, y=100, width=20, height=20)
         is_valid, issues = gen._validate_bbox(bbox, truncation=0.0)
         assert is_valid is False
-        assert any("completely outside" in i for i in issues)
+        assert issues == ["Bbox completely outside image"]
 
     def test_bbox_ending_at_or_before_zero_x(self, annotation_config_factory, camera_system_factory):
         gen = self._gen(annotation_config_factory, camera_system_factory)
@@ -309,15 +314,21 @@ class TestValidateBbox:
         bbox = BoundingBox2D(x=-20, y=10, width=20, height=20)
         is_valid, issues = gen._validate_bbox(bbox, truncation=0.0)
         assert is_valid is False
-        assert any("negative" in i for i in issues)
+        assert issues == ["Bbox completely outside image (negative)"]
 
     def test_multiple_issues_all_reported_together(self, annotation_config_factory, camera_system_factory):
         gen = self._gen(annotation_config_factory, camera_system_factory)
-        # tiny bbox AND heavily truncated
+        # area=25<100, width=5<10, height=5<10, truncation=0.9>0.8 -- all 4 fire;
+        # bbox.x=10 and x+width=15 keep the two "outside image" checks from firing.
         bbox = BoundingBox2D(x=10, y=10, width=5, height=5)
         is_valid, issues = gen._validate_bbox(bbox, truncation=0.9)
         assert is_valid is False
-        assert len(issues) >= 3  # area, width, height, truncation all fire
+        assert issues == [
+            "Area 25.0 below minimum 100",
+            "Width 5.0 below minimum 10",
+            "Height 5.0 below minimum 10",
+            "Truncation 0.90 exceeds maximum 0.8",
+        ]
 
 
 # ---------------------------------------------------------------------------

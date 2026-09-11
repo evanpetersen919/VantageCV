@@ -108,11 +108,14 @@ class TestProjectBbox3dTo2d:
         _validate_bbox are separate, downstream steps in annotation.py).
         """
         cam = camera_system_factory()
-        # y=-50 (large negative y -> large positive u, far outside width=100)
+        # y=-50 (large negative y -> large positive u, far outside width=100).
+        # Hand-derived: corners' cam_x in {9,11}, cam_y in {-51,-49}, cam_z in {0,2}.
+        # min_u = 50*(49/11)+50 = 3000/11, max_u = 50*(51/9)+50 = 1000/3,
+        # min_v = 50*(-2/9)+50 = 350/9, max_v = 50.0 (dz=0 corners).
         result = cam.project_bbox_3d_to_2d(x=10, y=-50, z=0, length=2, width=2, height=2)
-        assert result is not None
-        x, y, w, h = result
-        assert x > 100  # entirely to the right of a 100px-wide frame
+        assert result == pytest.approx((3000 / 11, 350 / 9, 1000 / 3 - 3000 / 11, 100 / 9))
+        x, _, _, _ = result
+        assert x > 100  # entirely to the right of a 100px-wide frame -- not clipped/rejected
 
     def test_z_is_box_bottom_not_center(self, camera_system_factory):
         """Confirms the docstring/code discrepancy: passing z=0 with height=8
