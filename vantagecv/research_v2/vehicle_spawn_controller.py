@@ -905,50 +905,56 @@ class VehicleSpawnController:
     
     def spawn(self, seed: int, count: int = 5,
               parking_ratio: float = 0.5,
-              vehicle_types: List[str] = None) -> SpawnResult:
+              vehicle_types: List[str] = None,
+              position_filter=None) -> SpawnResult:
         """
         Unified spawn: randomly distribute vehicles between parking and lanes.
-        
+
         Args:
             seed: Random seed for determinism
             count: Total number of vehicles to spawn
             parking_ratio: Probability of parking vs lane (0.5 = equal chance)
             vehicle_types: List of vehicle categories (default: car only)
-        
+            position_filter: Optional callable(location_dict) -> bool, forwarded
+                to spawn_parking/spawn_lane -- e.g. to constrain spawning to a
+                specific capture location's Y-coordinate range.
+
         Rotation is automatically adjusted based on zone type:
         - Parking: Face anchor direction ± 5° jitter, 30% reversed
         - Lane: Face lane direction (start→end) ± 2° jitter
         """
         random.seed(seed)
-        
+
         if vehicle_types is None:
             vehicle_types = ["car"]
-        
+
         logger.info(f"Spawning {count} vehicles (seed={seed}, parking_ratio={parking_ratio})")
-        
+
         # Decide how many go to parking vs lanes
         parking_count = sum(1 for _ in range(count) if random.random() < parking_ratio)
         lane_count = count - parking_count
-        
+
         logger.info(f"  Distribution: {parking_count} parking, {lane_count} lanes")
-        
+
         all_spawned = []
-        
+
         # Spawn parking vehicles
         if parking_count > 0:
             parking_result = self.spawn_parking(
                 seed=seed,
                 count=parking_count,
-                vehicle_types=vehicle_types
+                vehicle_types=vehicle_types,
+                position_filter=position_filter
             )
             all_spawned.extend(parking_result.spawned_vehicles)
-        
+
         # Spawn lane vehicles (use offset seed to avoid collision)
         if lane_count > 0:
             lane_result = self.spawn_lane(
                 seed=seed + 1000,
                 count=lane_count,
-                vehicle_types=vehicle_types
+                vehicle_types=vehicle_types,
+                position_filter=position_filter
             )
             all_spawned.extend(lane_result.spawned_vehicles)
         

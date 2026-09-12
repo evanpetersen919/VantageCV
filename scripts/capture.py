@@ -28,6 +28,7 @@ Date: January 2026
 """
 
 import argparse
+import re
 import sys
 import logging
 from pathlib import Path
@@ -49,6 +50,48 @@ logging.basicConfig(
     datefmt='%H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
+# Location boundaries (Y-coordinate ranges), matching the same 7 capture
+# locations defined in scripts/test_randomization.py and
+# scripts/interactive_spawn_test.py.
+LOCATION_BOUNDARIES = {
+    1: (400, 19600),
+    2: (19600, 39600),
+    3: (39600, 59600),
+    4: (59600, 79600),
+    5: (79600, 97600),
+    6: (97600, 117600),
+    7: (117600, 137600),
+}
+
+
+def make_location_filter(location: int):
+    """Build a position_filter(location_dict) -> bool constraining spawns to
+    the given capture location's Y-coordinate range."""
+    if location not in LOCATION_BOUNDARIES:
+        raise ValueError(
+            f"Unknown --location {location}; valid values are {sorted(LOCATION_BOUNDARIES)}"
+        )
+    y_min, y_max = LOCATION_BOUNDARIES[location]
+
+    def _filter(loc: dict) -> bool:
+        return y_min <= loc.get("Y", 0) <= y_max
+
+    return _filter
+
+
+def next_numbered_dir(base_dir: Path, prefix: str = "test_") -> Path:
+    """Find the next available <prefix><NNN> directory under base_dir (e.g.
+    test_001, test_002, ...), without creating it."""
+    base_dir.mkdir(parents=True, exist_ok=True)
+    pattern = re.compile(rf"^{re.escape(prefix)}(\d+)$")
+    existing = [
+        int(m.group(1))
+        for p in base_dir.iterdir() if p.is_dir()
+        for m in [pattern.match(p.name)] if m
+    ]
+    next_n = max(existing, default=0) + 1
+    return base_dir / f"{prefix}{next_n:03d}"
 
 
 def validate_scene(args) -> int:
@@ -120,7 +163,8 @@ def single_capture(args) -> int:
             seed=args.seed,
             count=args.vehicles,
             parking_ratio=args.parking_ratio,
-            vehicle_types=args.vehicle_types.split(",") if args.vehicle_types else ["car"]
+            vehicle_types=args.vehicle_types.split(",") if args.vehicle_types else ["car"],
+            position_filter=make_location_filter(args.location) if args.location else None
         )
         
         if not spawn_result.success:
@@ -179,10 +223,21 @@ def batch_capture(args) -> int:
     print(f"BATCH CAPTURE ({args.batch} frames)")
     print("=" * 60)
     
-    # Ensure output directory exists
-    output_dir = Path(args.output_dir)
+    # Ensure output directory exists. If --output-dir wasn't explicitly
+    # given, auto-create the next numbered folder (output/test_001,
+    # test_002, ...) instead of reusing/overwriting a fixed default.
+    if args.output_dir is None:
+        output_dir = next_numbered_dir(Path("output"))
+    else:
+        output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+    print(f"Output directory: {output_dir}")
+
+    # Optional: constrain spawning to a single capture location
+    position_filter = make_location_filter(args.location) if args.location else None
+    if args.location:
+        print(f"Restricting spawns to location {args.location} (Y in {LOCATION_BOUNDARIES[args.location]})")
+
     # Initialize controllers
     spawner = VehicleSpawnController(
         host=args.host,
@@ -233,7 +288,8 @@ def batch_capture(args) -> int:
                 seed=frame_seed,
                 count=args.vehicles,
                 parking_ratio=args.parking_ratio,
-                vehicle_types=vehicle_types
+                vehicle_types=vehicle_types,
+                position_filter=position_filter
             )
             
             if not spawn_result.success:
@@ -289,25 +345,34 @@ Examples:
   # Capture with 4 vehicles, all in parking:
   python scripts/capture.py --output output/frame_001.png --vehicles 4 --parking-ratio 1.0
 
-  # Batch capture:
+  # Batch capture (auto-numbered output/test_001, test_002, ...):
+  python scripts/capture.py --batch 10
+
+  # Batch capture restricted to location 1, auto-numbered folder:
+  python scripts/capture.py --batch 10 --location 1
+
+  # Batch capture with an explicit output folder (disables auto-numbering):
   python scripts/capture.py --batch 10 --output-dir output/batch_001
         """
     )
-    
+
     # Mode selection
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--validate-only", action="store_true",
                      help="Only validate scene, don't capture")
     mode.add_argument("--batch", type=int, metavar="N",
                      help="Batch capture N frames")
-    
+
     # Output options
     parser.add_argument("--output", default="output/capture.png",
                        help="Output image path (single capture)")
-    parser.add_argument("--output-dir", default="output/batch",
-                       help="Output directory (batch capture)")
-    
+    parser.add_argument("--output-dir", default=None,
+                       help="Output directory (batch capture). If not given, "
+                            "auto-creates the next output/test_NNN folder.")
+
     # Vehicle spawning
+    parser.add_argument("--location", type=int, choices=sorted(LOCATION_BOUNDARIES),
+                       help="Restrict spawning to one of the 7 capture locations (1-7)")
     parser.add_argument("--vehicles", type=int, default=3,
                        help="Number of vehicles to spawn (default: 3)")
     parser.add_argument("--vehicle-types", dest="vehicle_types", default="car",
