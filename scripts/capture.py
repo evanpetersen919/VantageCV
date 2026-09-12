@@ -99,14 +99,16 @@ def single_capture(args) -> int:
         port=args.port,
         level_path=args.level
     )
-    
+    spawner.detect_vehicle_pool()  # required: populates vehicle_pool_original_transforms,
+                                    # which reset_all() needs (see finally block below)
+
     capture_controller = SmartCameraCaptureController(
         host=args.host,
         port=args.port,
         level_path=args.level,
         data_capture_actor=args.data_capture
     )
-    
+
     try:
         # Step 1: Hide ALL vehicles in pool (clean slate)
         print("\n--- Step 1: Reset Vehicle Pool ---")
@@ -187,14 +189,16 @@ def batch_capture(args) -> int:
         port=args.port,
         level_path=args.level
     )
-    
+    spawner.detect_vehicle_pool()  # required: populates vehicle_pool_original_transforms,
+                                    # which reset_all() needs (see finally block below)
+
     capture_controller = SmartCameraCaptureController(
         host=args.host,
         port=args.port,
         level_path=args.level,
         data_capture_actor=args.data_capture
     )
-    
+
     # Pre-flight validation (without vehicles)
     if not args.skip_validation:
         print("\n--- Pre-flight Validation ---")

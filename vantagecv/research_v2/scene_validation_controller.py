@@ -291,21 +291,35 @@ class SceneValidationController:
         # Verify anchors exist in UE5
         missing_anchors = []
         
-        for anchor_name in self.anchor_config.get("parking", {}).get("anchors", []):
+        for anchor in self.anchor_config.get("parking", {}).get("anchors", []):
+            # Supports both YAML formats (see vehicle_spawn_controller.py's
+            # _get_parking_anchors): new format is a list of dicts with a
+            # 'name' key, old format is a plain list of actor-name strings.
+            anchor_name = anchor["name"] if isinstance(anchor, dict) else anchor
             if not self._actor_exists(anchor_name):
                 missing_anchors.append(anchor_name)
         
         for lane in self.anchor_config.get("lanes", {}).get("definitions", []):
-            if not self._actor_exists(lane["start"]):
-                missing_anchors.append(lane["start"])
-            if not self._actor_exists(lane["end"]):
-                missing_anchors.append(lane["end"])
-        
+            # Supports both YAML formats (see vehicle_spawn_controller.py's
+            # _get_lane_definitions): new format uses start_anchor/end_anchor,
+            # old format uses start/end.
+            lane_start = lane.get("start", lane.get("start_anchor"))
+            lane_end = lane.get("end", lane.get("end_anchor"))
+            if not self._actor_exists(lane_start):
+                missing_anchors.append(lane_start)
+            if not self._actor_exists(lane_end):
+                missing_anchors.append(lane_end)
+
         for sidewalk in self.anchor_config.get("sidewalks", {}).get("definitions", []):
-            if not self._actor_exists(sidewalk["start"]):
-                missing_anchors.append(sidewalk["start"])
-            if not self._actor_exists(sidewalk["end"]):
-                missing_anchors.append(sidewalk["end"])
+            # Sidewalks only ever use anchor_1/anchor_2 (see
+            # vehicle_spawn_controller.py's _get_sidewalk_bounds) -- there is
+            # no start/end variant for sidewalks in this codebase.
+            sidewalk_start = sidewalk.get("anchor_1")
+            sidewalk_end = sidewalk.get("anchor_2")
+            if not self._actor_exists(sidewalk_start):
+                missing_anchors.append(sidewalk_start)
+            if not self._actor_exists(sidewalk_end):
+                missing_anchors.append(sidewalk_end)
         
         if missing_anchors:
             return ValidationResult(
