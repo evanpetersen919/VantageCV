@@ -78,15 +78,21 @@ ADataCapture::ADataCapture()
 void ADataCapture::BeginPlay()
 {
 	Super::BeginPlay();
-	
+
 	// Store initial position as scene center - camera will orbit around this point
 	// Place your DataCapture actor WHERE YOUR VEHICLES ARE in the level
 	SceneCenter = GetActorLocation();
-	
+
 	// Store initial FOV
 	if (CaptureComponent)
 	{
 		InitialFOV = CaptureComponent->FOVAngle;
+
+		// USceneCaptureComponent2D does NOT automatically exclude its own
+		// owning actor from its capture -- without this, DataCapture itself
+		// (and anything attached to it, e.g. an editor-placed reference
+		// mesh) can render into its own output image.
+		CaptureComponent->HiddenActors.Add(this);
 	}
 	
 	// Initialize default render targets

@@ -310,21 +310,29 @@ def batch_capture(args) -> int:
             return 1
         print("✓ Scene valid - proceeding with batch capture")
     
-    # Capture frames
+    # Capture frames. Keeps retrying with new seeds until `args.batch`
+    # SUCCESSFUL frames have been produced (not just `args.batch` attempts),
+    # so frame_000000..frame_{batch-1:06d} always exist as a complete,
+    # gap-free sequence with a matching .json for each. A generous but
+    # finite attempt cap prevents an infinite loop if the scene is
+    # fundamentally unable to produce a valid capture.
     success_count = 0
     fail_count = 0
+    attempt = 0
+    max_attempts = args.batch * 20
     vehicle_types = args.vehicle_types.split(",") if args.vehicle_types else ["car"]
-    
-    for i in range(args.batch):
-        frame_seed = args.seed + i
-        output_path = output_dir / f"frame_{i:06d}.png"
-        
-        print(f"\n--- Frame {i + 1}/{args.batch} (seed={frame_seed}) ---")
-        
+
+    while success_count < args.batch and attempt < max_attempts:
+        frame_seed = args.seed + attempt
+        output_path = output_dir / f"frame_{success_count:06d}.png"
+        attempt += 1
+
+        print(f"\n--- Frame {success_count + 1}/{args.batch} (attempt {attempt}, seed={frame_seed}) ---")
+
         try:
             # Hide all and spawn fresh vehicles for each frame
             spawner.hide_all_vehicles()
-            
+
             spawn_result = spawner.spawn(
                 seed=frame_seed,
                 count=args.vehicles,
@@ -332,7 +340,7 @@ def batch_capture(args) -> int:
                 vehicle_types=vehicle_types,
                 position_filter=position_filter
             )
-            
+
             if not spawn_result.success:
                 fail_count += 1
                 print(f"  ✗ Spawn failed: {spawn_result.failure_reason}")
@@ -361,12 +369,18 @@ def batch_capture(args) -> int:
     print("\n" + "=" * 60)
     print("BATCH CAPTURE COMPLETE")
     print("=" * 60)
-    print(f"  Total:   {args.batch}")
-    print(f"  Success: {success_count}")
-    print(f"  Failed:  {fail_count}")
-    print(f"  Output:  {output_dir}")
-    
-    return 0 if fail_count == 0 else 1
+    print(f"  Target:   {args.batch}")
+    print(f"  Success:  {success_count}")
+    print(f"  Rejected: {fail_count} (spawn/visibility failures during retries)")
+    print(f"  Attempts: {attempt}")
+    print(f"  Output:   {output_dir}")
+
+    if success_count < args.batch:
+        print(f"\n❌ Only reached {success_count}/{args.batch} after {attempt} attempts "
+              f"(attempt cap: {max_attempts}) -- scene may need adjustment")
+        return 1
+
+    return 0
 
 
 def main():
