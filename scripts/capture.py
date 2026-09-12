@@ -33,6 +33,8 @@ import sys
 import logging
 from pathlib import Path
 
+from PIL import Image, ImageDraw, ImageFont
+
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -63,6 +65,44 @@ LOCATION_BOUNDARIES = {
     6: (97600, 117600),
     7: (117600, 137600),
 }
+
+
+def overlay_vehicle_info(image_path: str, vehicles, seed: int = 0):
+    """Overlay spawned vehicle info as white text on the top-left corner of
+    a captured image (in-place -- overwrites image_path). Identical format
+    to test_randomization.py's overlay_vehicle_info(), so output from both
+    scripts looks the same.
+    """
+    try:
+        img = Image.open(image_path)
+        draw = ImageDraw.Draw(img)
+
+        try:
+            font = ImageFont.truetype("consola.ttf", 18)
+        except (OSError, IOError):
+            try:
+                font = ImageFont.truetype("cour.ttf", 18)
+            except (OSError, IOError):
+                font = ImageFont.load_default()
+
+        lines = [f"Seed: {seed}  |  Vehicles: {len(vehicles)}"]
+        for v in vehicles:
+            loc = v.spawn_location
+            lines.append(
+                f"  {v.category:10} {v.name:25} "
+                f"({loc['X']:.0f}, {loc['Y']:.0f})  {v.anchor_name or ''}"
+            )
+
+        x, y = 10, 10
+        for line in lines:
+            for ox, oy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
+                draw.text((x + ox, y + oy), line, fill="black", font=font)
+            draw.text((x, y), line, fill="white", font=font)
+            y += 22
+
+        img.save(image_path)
+    except Exception as e:
+        print(f"  [WARN] Could not overlay vehicle info: {e}")
 
 
 def make_location_filter(location: int):
@@ -205,6 +245,7 @@ def single_capture(args) -> int:
             print(f"\n  Failure: {result.failure_reason}")
         
         if result.status == CaptureStatus.SUCCESS:
+            overlay_vehicle_info(str(output_path), spawn_result.spawned_vehicles, seed=args.seed)
             print("\n✅ Capture SUCCESS")
             return 0
         else:
@@ -307,11 +348,12 @@ def batch_capture(args) -> int:
             
             if result.status == CaptureStatus.SUCCESS:
                 success_count += 1
+                overlay_vehicle_info(str(output_path), spawn_result.spawned_vehicles, seed=frame_seed)
                 print(f"  ✓ Captured: {output_path.name}")
             else:
                 fail_count += 1
                 print(f"  ✗ Failed: {result.failure_reason}")
-        
+
         finally:
             spawner.reset_all()
     
